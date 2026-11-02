@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>嘎！稳住 · 头脑风暴纪念册</title>
+<meta name="description" content="GitHub Game Off 2026（主题 SHIFT）头脑风暴纪念册：从「转移重心」一路漂到「鸭妈妈背着鸭宝宝过河」。">
+<style>
+:root{
+  --paper:#fbf4e2;
+  --paper-2:#f4e9cc;
+  --card:#fffaf0;
+  --ink:#3d2f27;
+  --ink-soft:#6f5d50;
+  --line:#e2d3ae;
+  --water:#9ad6e3;
+  --water-2:#6fbfd3;
+  --water-deep:#3f9db8;
+  --foam:#ffffff;
+  --duck:#ffd23f;
+  --duck-2:#ffbf1f;
+  --duckling:#ffe57a;
+  --beak:#ff8c42;
+  --eye:#2b211c;
+  --mama:#f7f1e3;
+  --mama-wing:#cdbf9f;
+  --mama-head:#8a6a4f;
+  --lily:#6bbf7a;
+  --lily-2:#4f9e5f;
+  --lotus:#f49ac1;
+  --lotus-2:#e66fa3;
+  --user:#e8a400;
+  --user-bg:#fff1c2;
+  --coach:#3f8fb0;
+  --coach-bg:#dff1f7;
+  --must:#e66f5c;
+  --should:#f2a541;
+  --could:#6bbf7a;
+  --wont:#9aa6b2;
+  --stage:#21303a;
+  --stage-ink:#f6eedc;
+  --shadow:0 6px 0 rgba(61,47,39,.08), 0 14px 30px rgba(61,47,39,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#10202a;
+    --paper-2:#152a36;
+    --card:#1a3240;
+    --ink:#f3ead6;
+    --ink-soft:#b8c4c4;
+    --line:#2c4a59;
+    --water:#1f5a6e;
+    --water-2:#2a7088;
+    --water-deep:#5fb7cf;
+    --foam:#cfeef6;
+    --duck:#ffd23f;
+    --duck-2:#f2b70f;
+    --duckling:#ffe27a;
+    --beak:#ff9a55;
+    --eye:#10161a;
+    --mama:#ece4cf;
+    --mama-wing:#b8aa88;
+    --mama-head:#9c7a5c;
+    --lily:#5fb06e;
+    --lily-2:#7cc98a;
+    --lotus:#f08bb7;
+    --lotus-2:#f6a9cb;
+    --user:#ffc93d;
+    --user-bg:#3f3412;
+    --coach:#7cc7e2;
+    --coach-bg:#173c4b;
+    --must:#f08a78;
+    --should:#f5b75e;
+    --could:#7cc98a;
+    --wont:#8b97a3;
+    --stage:#0a141a;
+    --stage-ink:#f6eedc;
+    --shadow:0 6px 0 rgba(0,0,0,.25), 0 14px 30px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#10202a;--paper-2:#152a36;--card:#1a3240;--ink:#f3ead6;--ink-soft:#b8c4c4;--line:#2c4a59;
+  --water:#1f5a6e;--water-2:#2a7088;--water-deep:#5fb7cf;--foam:#cfeef6;--duck:#ffd23f;--duck-2:#f2b70f;
+  --duckling:#ffe27a;--beak:#ff9a55;--eye:#10161a;--mama:#ece4cf;--mama-wing:#b8aa88;--mama-head:#9c7a5c;
+  --lily:#5fb06e;--lily-2:#7cc98a;--lotus:#f08bb7;--lotus-2:#f6a9cb;--user:#ffc93d;--user-bg:#3f3412;
+  --coach:#7cc7e2;--coach-bg:#173c4b;--must:#f08a78;--should:#f5b75e;--could:#7cc98a;--wont:#8b97a3;
+  --stage:#0a141a;--stage-ink:#f6eedc;--shadow:0 6px 0 rgba(0,0,0,.25), 0 14px 30px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;overflow-x:hidden}
+@supports (overflow:clip){html,body{overflow-x:clip}}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC","Source Han Sans SC",system-ui,sans-serif;
+  line-height:1.7;
+  font-size:16px;
+  -webkit-font-smoothing:antialiased;
+}
+.round{font-family:"Yuanti SC","YouYuan","PingFang SC","Hiragino Maru Gothic ProN","Microsoft YaHei",system-ui,sans-serif}
+h1,h2,h3{line-height:1.25;margin:0}
+p{margin:.4em 0}
+a{color:var(--water-deep)}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px;position:relative}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ===== the river that flows down the whole page ===== */
+.river-bg{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.river-bg svg{width:100%;height:100%;display:block}
+.river-bg .bank{fill:none;stroke:var(--water);stroke-width:110;stroke-linecap:round;opacity:.38}
+.river-bg .flow{fill:none;stroke:var(--foam);stroke-width:3;stroke-dasharray:6 22;stroke-linecap:round;opacity:.8;animation:flow 6s linear infinite}
+.river-bg .flow.b{stroke-dasharray:2 30;stroke-width:2;animation-duration:9s;opacity:.6}
+@keyframes flow{to{stroke-dashoffset:-280}}
+main{position:relative}
+section{position:relative;z-index:1;padding:64px 0}
+
+/* tilt the "page" with the duck */
+.sheet{transform:rotate(var(--page-tilt,0deg));transition:transform .6s ease-out}
+
+/* ===== shared ===== */
+.kicker{display:inline-flex;align-items:center;gap:8px;font-size:.82rem;letter-spacing:.12em;color:var(--water-deep);font-weight:700}
+.kicker::before{content:"";width:22px;height:8px;border-radius:8px;background:var(--water-2)}
+.sec-title{font-size:clamp(1.6rem,4.5vw,2.4rem);margin:.25em 0 .35em;font-weight:800}
+.lede{color:var(--ink-soft);max-width:40em}
+.card{background:var(--card);border:2px solid var(--line);border-radius:22px;box-shadow:var(--shadow)}
+.tag{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:99px;white-space:nowrap;vertical-align:middle}
+.tag.user{background:var(--user-bg);color:var(--ink);border:1.5px solid var(--user)}
+.tag.user::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--user);box-shadow:0 0 0 2px var(--user-bg)}
+.tag.coach{background:var(--coach-bg);color:var(--ink);border:1.5px solid var(--coach)}
+.tag.coach::before{content:"";width:9px;height:9px;border-radius:2px;background:var(--coach)}
+.tag.pick{background:var(--lotus);color:#3d2f27;border:1.5px solid var(--lotus-2)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:.85rem;color:var(--ink-soft)}
+
+/* ===== hero ===== */
+.hero{padding:40px 0 30px;text-align:center}
+.hero h1{font-size:clamp(2.4rem,10vw,5rem);font-weight:900;letter-spacing:.02em}
+.hero h1 .quack{color:var(--beak);display:inline-block;transform-origin:50% 90%}
+.hero .sub{font-size:clamp(1rem,2.8vw,1.2rem);color:var(--ink-soft);margin-top:6px}
+.badge-row{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:18px 0 6px}
+.chip{background:var(--card);border:2px solid var(--line);border-radius:99px;padding:4px 14px;font-size:.88rem;font-weight:600}
+.chip b{color:var(--beak)}
+.toy{margin:22px auto 0;max-width:760px;padding:10px 10px 14px;position:relative;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize;outline:none}
+.toy:focus-visible{box-shadow:0 0 0 4px var(--water-2), var(--shadow)}
+.toy svg{width:100%;height:auto;display:block;border-radius:16px;overflow:hidden}
+.toy-bar{display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;padding:8px 6px 0;font-size:.88rem;color:var(--ink-soft)}
+.btn{font:inherit;font-weight:800;border:2px solid var(--ink);background:var(--duck);color:#3d2f27;border-radius:14px;padding:6px 16px;cursor:pointer;box-shadow:0 3px 0 var(--ink);transition:transform .08s}
+.btn:active{transform:translateY(2px);box-shadow:0 1px 0 var(--ink)}
+.btn[disabled]{opacity:.5;cursor:default}
+kbd{font:inherit;font-size:.8em;border:1.5px solid var(--ink-soft);border-bottom-width:3px;border-radius:6px;padding:0 6px;background:var(--card)}
+.score b{color:var(--ink)}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:30px auto 0;max-width:860px}
+.fact{padding:14px 12px;text-align:center}
+.fact .n{font-size:1.5rem;font-weight:900;color:var(--water-deep);line-height:1.2}
+.fact .l{font-size:.82rem;color:var(--ink-soft)}
+@media (max-width:640px){.facts{grid-template-columns:repeat(2,1fr)}}
+
+/* ===== journey ===== */
+.journey{position:relative;margin-top:30px}
+.journey .path{position:absolute;inset:0;pointer-events:none}
+.journey .path svg{width:100%;height:100%}
+.journey .path .wet{fill:none;stroke:var(--water);stroke-width:34;stroke-linecap:round;opacity:.65}
+.journey .path .dash{fill:none;stroke:var(--foam);stroke-width:3;stroke-dasharray:4 16;animation:flow 5s linear infinite}
+.stops{list-style:none;margin:0;padding:0;position:relative;display:grid;gap:22px}
+.stop{width:min(440px,78%);padding:16px 18px;position:relative}
+.stop:nth-child(odd){justify-self:start}
+.stop:nth-child(even){justify-self:end}
+.stop .step{position:absolute;top:-14px;left:16px;background:var(--water-deep);color:#fff;font-weight:900;border-radius:99px;padding:0 10px;font-size:.8rem}
+.stop h3{font-size:1.12rem;margin:6px 0 4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.stop p{color:var(--ink-soft);font-size:.93rem}
+.stop.mine{border-color:var(--user);background:linear-gradient(180deg,var(--user-bg),var(--card) 70%)}
+.stop.mine::after{content:"";position:absolute;right:-10px;top:-12px;width:34px;height:34px;border-radius:50%;background:var(--duck);border:2px solid var(--ink);
+  background-image:radial-gradient(circle at 62% 40%, var(--eye) 0 2.5px, transparent 3px);}
+.stop.final{border-width:3px;border-color:var(--beak)}
+.branches{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.branches span{font-size:.78rem;background:var(--paper-2);border-radius:10px;padding:2px 8px;color:var(--ink-soft)}
+.meanings{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.meanings span{font-size:.8rem;border:1.5px dashed var(--line);border-radius:10px;padding:1px 8px}
+.meanings span.hit{border:2px solid var(--user);background:var(--user-bg);font-weight:700}
+@media (max-width:640px){.stop{width:92%}}
+
+/* ===== research ===== */
+.refs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:26px}
+.ref{padding:18px;position:relative;overflow:hidden}
+.ref .ico{width:54px;height:54px;margin-bottom:6px}
+.ref h3{font-size:1.05rem}
+.ref .take{font-size:.92rem;color:var(--ink-soft)}
+.ref .lesson{margin-top:8px;font-size:.82rem;font-weight:700;color:var(--water-deep)}
+.ref.warn .lesson{color:var(--must)}
+.ref::after{content:"";position:absolute;right:-30px;bottom:-30px;width:90px;height:90px;border-radius:50%;border:3px solid var(--water);opacity:.5}
+
+/* ===== lotus ===== */
+.lotus-wrap{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:26px;align-items:start;margin-top:26px}
+@media (max-width:820px){.lotus-wrap{grid-template-columns:1fr}}
+.lotus{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;aspect-ratio:1/1;max-width:480px;width:100%;margin:0 auto;position:relative}
+.lotus::before{content:"";position:absolute;inset:-6%;border-radius:50%;background:radial-gradient(circle,var(--lily) 0 46%, transparent 47%);opacity:.35;z-index:-1}
+.petal{border:2px solid var(--lotus-2);background:var(--card);border-radius:50% 50% 50% 50%/60% 60% 40% 40%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px;cursor:pointer;
+  font:inherit;color:var(--ink);transform:scale(.2) rotate(-30deg);opacity:0;
+  transition:transform .6s cubic-bezier(.3,1.6,.5,1), opacity .4s, background .2s}
+.petal .t{font-weight:800;font-size:clamp(.78rem,2.6vw,1rem);line-height:1.2}
+.petal .c{font-size:.72rem;color:var(--ink-soft)}
+.petal:hover,.petal[aria-pressed="true"]{background:var(--lotus);color:#3d2f27}
+.petal[aria-pressed="true"] .c{color:#3d2f27}
+.petal:focus-visible{outline:3px solid var(--water-deep);outline-offset:2px}
+.petal.center{border-radius:50%;background:var(--duck);border-color:var(--ink);cursor:default;color:#3d2f27}
+.petal.center .t{font-size:clamp(.78rem,2.4vw,.95rem)}
+.lotus.bloom .petal{transform:none;opacity:1}
+.lotus .petal:nth-child(1){transition-delay:.05s}.lotus .petal:nth-child(2){transition-delay:.12s}.lotus .petal:nth-child(3){transition-delay:.19s}
+.lotus .petal:nth-child(4){transition-delay:.26s}.lotus .petal:nth-child(5){transition-delay:0s}.lotus .petal:nth-child(6){transition-delay:.33s}
+.lotus .petal:nth-child(7){transition-delay:.40s}.lotus .petal:nth-child(8){transition-delay:.47s}.lotus .petal:nth-child(9){transition-delay:.54s}
+.petal-detail{padding:20px;min-height:280px}
+.petal-detail h3{font-size:1.25rem;margin-bottom:8px;color:var(--lotus-2)}
+.petal-detail ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.petal-detail li{padding:8px 12px;border-radius:14px;background:var(--paper-2);font-size:.93rem;position:relative;padding-left:30px}
+.petal-detail li::before{content:"";position:absolute;left:11px;top:15px;width:10px;height:10px;border-radius:50% 50% 50% 0;background:var(--lotus);transform:rotate(-45deg)}
+.petal-detail li b{color:var(--ink)}
+.pre-lotus{margin-top:14px;font-size:.88rem;color:var(--ink-soft)}
+
+/* ===== forced relationships ===== */
+.pairs{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:26px}
+.pair{padding:14px 16px;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center}
+.pair .x{grid-row:span 2;display:flex;align-items:center;gap:4px;font-weight:900}
+.pair .x .a,.pair .x .b{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:1rem;border:2px solid var(--ink)}
+.pair .x .a{background:var(--duck);color:#3d2f27}
+.pair .x .b{background:var(--water);color:var(--ink)}
+.pair .x i{font-style:normal;color:var(--beak);font-size:1.2rem}
+.pair h3{font-size:1rem}
+.pair p{font-size:.86rem;color:var(--ink-soft);margin:0}
+.pair:nth-child(3n+1){transform:rotate(-.6deg)}.pair:nth-child(3n+2){transform:rotate(.5deg)}
+.pair.echo{border-color:var(--should)}
+
+/* ===== dial ===== */
+.dial-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:26px;align-items:center;margin-top:26px}
+@media (max-width:760px){.dial-wrap{grid-template-columns:1fr}}
+.dial{max-width:380px;width:100%;margin:0 auto;position:relative}
+.dial svg{width:100%;height:auto;display:block}
+.dial .tick{cursor:pointer}
+.dial .tick text{font-size:15px;font-weight:800;fill:var(--ink)}
+.dial .tick circle{fill:var(--card);stroke:var(--line);stroke-width:2;transition:fill .2s}
+.dial .tick.on circle{fill:var(--beak);stroke:var(--ink)}
+.dial .tick.on text{fill:#3d2f27}
+.dial .tick:focus-visible circle{stroke:var(--water-deep);stroke-width:4}
+#knob{transition:transform .5s cubic-bezier(.3,1.5,.5,1);transform-origin:200px 200px}
+.dial-out{padding:22px;min-height:220px;position:relative}
+.dial-out .lvl{font-size:3.4rem;font-weight:900;color:var(--beak);line-height:1}
+.dial-out h3{font-size:1.3rem;margin:6px 0}
+.dial-out .note{margin-top:10px;font-size:.85rem}
+.dial-range{width:100%;margin-top:12px;accent-color:var(--beak)}
+
+/* ===== one feature ===== */
+.stage{background:var(--stage);color:var(--stage-ink);border-radius:28px;padding:40px 20px;position:relative;overflow:hidden;margin-top:26px;
+  --sx:50%;--sy:40%}
+.stage::before{content:"";position:absolute;inset:0;background:radial-gradient(circle at var(--sx) var(--sy), rgba(255,236,170,.32), rgba(255,236,170,.08) 22%, transparent 45%);pointer-events:none}
+.stage .spot{position:relative;text-align:center;max-width:560px;margin:0 auto}
+.stage .spot .cone{width:min(240px,60%);margin:0 auto -10px}
+.stage .spot h3{font-size:clamp(1.6rem,5vw,2.4rem);color:#ffe27a}
+.stage .spot p{color:#e8dfca}
+.stage .dim{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:30px;position:relative}
+.stage .dim div{border:1.5px dashed rgba(246,238,220,.25);border-radius:16px;padding:10px 14px;font-size:.88rem;color:rgba(246,238,220,.72)}
+.stage .dim b{color:var(--stage-ink)}
+
+/* ===== moscow ===== */
+.ponds{display:grid;gap:18px;margin-top:26px}
+.pond{padding:20px 20px 18px;display:grid;grid-template-columns:150px 1fr;gap:18px;align-items:start;position:relative;overflow:hidden}
+@media (max-width:640px){.pond{grid-template-columns:1fr}}
+.pond .head{display:flex;flex-direction:column;gap:4px}
+.pond .head .lab{font-size:1.6rem;font-weight:900;letter-spacing:.04em}
+.pond .head .meta{font-size:.82rem;color:var(--ink-soft)}
+.pond .head svg{width:120px;height:60px}
+.pond ul{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:8px}
+.pond li{border-radius:14px;padding:6px 12px;font-size:.9rem;background:var(--paper-2);border:1.5px solid transparent}
+.pond.must{border-color:var(--must)} .pond.must .lab{color:var(--must)} .pond.must li{border-color:color-mix(in srgb,var(--must) 40%,transparent)}
+.pond.should{border-color:var(--should)} .pond.should .lab{color:var(--should)}
+.pond.could{border-color:var(--could)} .pond.could .lab{color:var(--could)}
+.pond.wont{border-color:var(--wont);border-style:dashed;opacity:.88} .pond.wont .lab{color:var(--wont)} .pond.wont li{text-decoration:line-through;text-decoration-color:var(--wont);color:var(--ink-soft)}
+.pond li.star{background:var(--user-bg);border-color:var(--user);font-weight:700}
+
+/* ===== synthesis climax ===== */
+.climax{background:linear-gradient(180deg,transparent,var(--paper-2) 12%,var(--paper-2) 88%,transparent);}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}
+@media (max-width:760px){.three{grid-template-columns:1fr}}
+.layer{padding:22px 18px;text-align:center;position:relative}
+.layer .ring{width:110px;height:110px;margin:0 auto 6px}
+.layer .ring circle{fill:none;stroke:var(--water-2);stroke-width:3}
+.layer .ring .r2{opacity:.6}.layer .ring .r3{opacity:.3}
+.layer .no{font-size:.8rem;font-weight:900;color:var(--water-deep);letter-spacing:.1em}
+.layer h3{font-size:1.2rem;margin:4px 0}
+.layer p{font-size:.9rem;color:var(--ink-soft)}
+.insights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}
+@media (max-width:760px){.insights{grid-template-columns:1fr}}
+.ins{padding:20px}
+.ins h3{font-size:1.15rem;margin-bottom:6px}
+.ins svg{width:100%;height:auto;max-height:150px;display:block;margin:4px 0 8px}
+.ins p{font-size:.92rem;color:var(--ink-soft)}
+.ins.open{border-style:dashed;border-color:var(--water-deep)}
+.engines{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.engines span{border:2px solid var(--water-deep);border-radius:12px;padding:4px 10px;font-weight:700;font-size:.88rem;background:var(--card)}
+.titles{display:flex;flex-wrap:wrap;justify-content:center;gap:22px;margin-top:40px}
+.sign{position:relative;padding:16px 26px 14px;background:#c98d55;color:#3a2412;border:3px solid #6e4524;border-radius:10px;font-weight:900;font-size:clamp(1.2rem,4vw,1.7rem);box-shadow:0 6px 0 #6e4524}
+.sign::after{content:"";position:absolute;left:50%;bottom:-40px;width:10px;height:40px;background:#6e4524;transform:translateX(-50%);z-index:-1}
+.sign:nth-child(1){transform:rotate(-3deg)}.sign:nth-child(2){transform:rotate(2deg)}.sign:nth-child(3){transform:rotate(-1deg)}
+.titles-note{text-align:center;margin-top:54px;color:var(--ink-soft);font-size:.9rem}
+
+/* ===== footer ===== */
+footer{position:relative;z-index:1;padding:50px 0 70px;text-align:center;color:var(--ink-soft);font-size:.9rem}
+footer .ducks svg{width:min(320px,80%);height:auto}
+.count{display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:center;margin:10px 0}
+
+/* gentle bobbing */
+.bob{animation:bob 3.6s ease-in-out infinite}
+.bob.d2{animation-delay:-1.2s}.bob.d3{animation-delay:-2.4s}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-4px) rotate(1deg)}}
+.wave{animation:wave 4s ease-in-out infinite}
+@keyframes wave{0%,100%{transform:translateX(0)}50%{transform:translateX(-24px)}}
+.ripple{transform-box:fill-box;transform-origin:center;animation:ripple 3s ease-out infinite}
+@keyframes ripple{0%{transform:scale(.3);opacity:.9}100%{transform:scale(1.4);opacity:0}}
+.hero h1 .quack{animation:quack 2.8s ease-in-out infinite}
+@keyframes quack{0%,80%,100%{transform:rotate(0)}85%{transform:rotate(-8deg) scale(1.08)}90%{transform:rotate(6deg)}95%{transform:rotate(-3deg)}}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  .sheet{transform:none !important}
+  .petal{transform:none;opacity:1}
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="duckling" viewBox="0 0 60 50">
+      <ellipse cx="26" cy="33" rx="20" ry="14" style="fill:var(--duckling)"/>
+      <path d="M8 30 q-6 -6 -2 -12 q4 6 8 7z" style="fill:var(--duckling)"/>
+      <circle cx="40" cy="18" r="12" style="fill:var(--duckling)"/>
+      <path d="M50 17 l9 3 -9 4z" style="fill:var(--beak)"/>
+      <circle cx="44" cy="15" r="2.4" style="fill:var(--eye)"/>
+      <path d="M18 31 q8 8 16 0" style="fill:none;stroke:var(--duck-2);stroke-width:2.5;stroke-linecap:round"/>
+    </symbol>
+    <symbol id="mama" viewBox="0 0 220 130">
+      <path d="M22 70 q-14 -26 4 -38 q6 18 22 26z" style="fill:var(--mama)"/>
+      <ellipse cx="100" cy="82" rx="82" ry="40" style="fill:var(--mama)"/>
+      <path d="M50 76 q40 -14 92 6 q-34 30 -92 -6z" style="fill:var(--mama-wing)"/>
+      <path d="M150 70 q8 -30 4 -40" style="fill:none;stroke:var(--mama);stroke-width:22;stroke-linecap:round"/>
+      <circle cx="165" cy="30" r="24" style="fill:var(--mama-head)"/>
+      <path d="M185 28 q24 2 26 8 q-12 6 -28 2z" style="fill:var(--beak)"/>
+      <circle cx="172" cy="24" r="3.5" style="fill:var(--eye)"/>
+      <circle cx="173" cy="23" r="1" style="fill:#fff"/>
+    </symbol>
+  </defs>
+</svg>
+
+<main>
+  <div class="river-bg" aria-hidden="true">
+    <svg viewBox="0 0 100 1000" preserveAspectRatio="none">
+      <path class="bank" vector-effect="non-scaling-stroke" d="M80 0 C 20 60, 15 110, 50 170 S 95 280, 60 360 S 5 470, 35 560 S 95 660, 70 760 S 10 880, 50 1000"/>
+      <path class="flow" vector-effect="non-scaling-stroke" d="M80 0 C 20 60, 15 110, 50 170 S 95 280, 60 360 S 5 470, 35 560 S 95 660, 70 760 S 10 880, 50 1000"/>
+      <path class="flow b" vector-effect="non-scaling-stroke" d="M84 0 C 24 60, 19 110, 54 170 S 99 280, 64 360 S 9 470, 39 560 S 99 660, 74 760 S 14 880, 54 1000"/>
+    </svg>
+  </div>
+
+  <!-- ===================== HERO ===================== -->
+  <section class="hero">
+    <div class="wrap">
+      <div class="kicker round" style="justify-content:center">GITHUB GAME OFF 2026 · 主题 SHIFT · 头脑风暴纪念册</div>
+      <h1 class="round"><span class="quack">嘎！</span>稳住</h1>
+      <p class="sub">一场从「SHIFT 是什么意思？」开始、最后漂到「鸭妈妈背着一窝乱动的鸭宝宝过河」的头脑风暴。<br>2026 年 11 月 2 日，在一条想象的河上。</p>
+
+      <div class="badge-row">
+        <span class="chip">独立开发 · <b>1 人</b></span>
+        <span class="chip">开发周期 · <b>约 4 周</b></span>
+        <span class="chip">截止 · <b>2026-12-01 13:37 PST</b></span>
+        <span class="chip">目标 · <b>冲社区投票排名</b></span>
+      </div>
+
+      <div class="toy card sheet" id="toy" tabindex="0" role="application" aria-label="小玩具：左右移动鼠标或手指让鸭妈妈倾斜，方向键也可以；按 Shift 或点「嘎！」按钮把宝宝叫回中间。">
+        <svg viewBox="0 0 600 300" aria-hidden="true">
+          <defs>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" style="stop-color:var(--paper-2)"/>
+              <stop offset="1" style="stop-color:var(--paper)"/>
+            </linearGradient>
+          </defs>
+          <rect width="600" height="300" fill="url(#sky)"/>
+          <g style="fill:var(--lily)" opacity=".8">
+            <ellipse cx="60" cy="214" rx="34" ry="9"/><ellipse cx="530" cy="230" rx="28" ry="8"/>
+            <circle cx="70" cy="207" r="7" style="fill:var(--lotus)"/>
+          </g>
+          <rect y="205" width="600" height="95" style="fill:var(--water)"/>
+          <g class="wave"><path d="M-40 212 q20 -8 40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 t40 0 v10 h-720z" style="fill:var(--water-2)"/></g>
+          <g style="stroke:var(--foam);stroke-width:3;stroke-linecap:round;fill:none" opacity=".75">
+            <path class="wave" d="M90 252 h40 M300 268 h60 M470 250 h30 M180 285 h50"/>
+          </g>
+          <g id="world">
+            <ellipse cx="300" cy="226" rx="120" ry="10" style="fill:var(--water-deep)" opacity=".35"/>
+            <g id="mamaG">
+              <use href="#mama" x="180" y="110" width="220" height="130"/>
+              <g id="kids"></g>
+            </g>
+            <g id="splashes"></g>
+          </g>
+          <g id="quackBubble" opacity="0">
+            <path d="M420 60 h110 a14 14 0 0 1 14 14 v30 a14 14 0 0 1 -14 14 h-80 l-18 16 l4 -16 h-16 a14 14 0 0 1 -14 -14 v-30 a14 14 0 0 1 14 -14z" style="fill:var(--card);stroke:var(--ink);stroke-width:2.5"/>
+            <text x="475" y="99" text-anchor="middle" style="font-size:28px;font-weight:900;fill:var(--beak)">嘎！</text>
+          </g>
+        </svg>
+        <div class="toy-bar">
+          <span>左右晃鼠标 / 手指（或 <kbd>←</kbd><kbd>→</kbd>）转移重心 · <kbd>Shift</kbd> 召集宝宝</span>
+          <span class="score">背上 <b id="onBack">4</b> 只 · 落水「啾！」<b id="splashCount">0</b> 次</span>
+          <button class="btn round" id="quackBtn" type="button">嘎！</button>
+        </div>
+      </div>
+
+      <div class="facts">
+        <div class="fact card"><div class="n" id="cd">--</div><div class="l">距离提交截止</div></div>
+        <div class="fact card"><div class="n">4</div><div class="l">个创意技巧 + MoSCoW 收敛</div></div>
+        <div class="fact card"><div class="n">80</div><div class="l">个点子漂过这条河</div></div>
+        <div class="fact card"><div class="n">4</div><div class="l">个是你亲手放下的种子</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== JOURNEY ===================== -->
+  <section id="journey">
+    <div class="wrap">
+      <div class="kicker round">第一段河道 · 点子的漂流路线</div>
+      <h2 class="sec-title round">从一个英文单词，漂到一只鸭妈妈</h2>
+      <p class="lede">整场风暴最关键的几次转弯，都是你掌的舵。金色的小站是你自己的点子和选择；蓝色是教练顺手撒下的支流。</p>
+      <div class="legend" style="margin-top:10px"><span class="tag user">你的点子 / 你的选择</span><span class="tag coach">教练的点子</span></div>
+
+      <div class="journey">
+        <div class="path" aria-hidden="true">
+          <svg viewBox="0 0 100 1000" preserveAspectRatio="none">
+            <path class="wet" vector-effect="non-scaling-stroke" d="M28 0 C 28 60, 72 70, 72 130 S 28 200, 28 250 S 72 330, 72 380 S 28 450, 28 500 S 72 580, 72 630 S 28 700, 28 750 S 72 830, 72 880 S 50 960, 50 1000"/>
+            <path class="dash" vector-effect="non-scaling-stroke" d="M28 0 C 28 60, 72 70, 72 130 S 28 200, 28 250 S 72 330, 72 380 S 28 450, 28 500 S 72 580, 72 630 S 28 700, 28 750 S 72 830, 72 880 S 50 960, 50 1000"/>
+          </svg>
+        </div>
+        <ol class="stops">
+          <li class="stop card sheet">
+            <span class="step">源头</span>
+            <h3>SHIFT 在英语里有哪些意思？ <span class="tag user">你的提问</span></h3>
+            <p>莲花图的第一把原料。一个词，摊开是一整片水面：</p>
+            <div class="meanings"><span>换班</span><span>转换</span><span>Shift 键</span><span>换挡</span><span>改变视角</span><span class="hit">shift your weight · 重心转移</span></div>
+          </li>
+          <li class="stop card sheet mine">
+            <span class="step">01</span>
+            <h3>shift your weight · 重心转移 <span class="tag user">你的点子</span></h3>
+            <p>你把它定为核心方向。后来所有的转弯，都在围着「重心」打转。</p>
+          </li>
+          <li class="stop card sheet">
+            <span class="step">02</span>
+            <h3>如果是星球转移重心呢？ <span class="tag user">你的提问</span></h3>
+            <p>教练顺流放下四条支流：</p>
+            <div class="branches"><span>搬运山海城市，自转轴倾斜</span><span>居民即重量，指挥人群让星球滚动</span><span>星球吊在天平上，偏了就滑落轨道</span><span>融冰潮汐，被动灾难抢救平衡</span></div>
+          </li>
+          <li class="stop card sheet mine">
+            <span class="step">03</span>
+            <h3>重心转移的主体换成：桥 <span class="tag user">你的点子</span></h3>
+            <p>从宇宙尺度一下子落回河面，第一次有了「过河」的影子。</p>
+            <div class="branches"><span>教练：你就是桥</span><span>教练：背着乱动的猫过独木桥</span></div>
+          </li>
+          <li class="stop card sheet">
+            <span class="step">04</span>
+            <h3>「你就是桥」 <span class="tag pick">你看中的</span></h3>
+            <p>行人和车辆从桥上过，玩家实时调整桥身的倾斜与拉索，不让它们掉下去。</p>
+          </li>
+          <li class="stop card sheet mine">
+            <span class="step">05</span>
+            <h3>3D 物理拟真 + 滑稽布娃娃 <span class="tag user">你的点子</span></h3>
+            <p>Human Fall Flat、TABS 那种喜感。教练补了一句：失败本身好笑，大家会录 GIF 分享，正好适合社区投票。</p>
+            <div class="branches"><span>醉汉乱晃</span><span>胖大叔压塌一边</span><span>一群鸭子同步走引发共振</span><span>外卖小哥全速冲过</span></div>
+          </li>
+          <li class="stop card sheet">
+            <span class="step">06</span>
+            <h3>去调研「桥的手感」 <span class="tag user">你的要求</span></h3>
+            <p>四部参考作品被捞上岸（见下一段河道），外加两条单人范围的提醒：平时用胶囊体，失衡时才切布娃娃；操作要能在 1 到 2 分钟内学会。</p>
+          </li>
+          <li class="stop card sheet mine">
+            <span class="step">07</span>
+            <h3>鸭妈妈背着鸭宝宝过河 <span class="tag user">你的点子</span></h3>
+            <p>就是这一刻，河有了主角。现实里秋沙鸭、䴙䴘、天鹅真的会背着幼崽游，䴙䴘潜水时宝宝还趴在背上。</p>
+          </li>
+          <li class="stop card sheet mine final">
+            <span class="step">入海口</span>
+            <h3>玩家就是鸭妈妈本人 <span class="tag user">你的决定</span></h3>
+            <p>背上驮着一窝乱爬、乱挤、乱打架的宝宝。宝宝爬到哪，重心就偏到哪，SHIFT your weight 有了毛茸茸的样子。之后的发散和收敛，你交给教练自主完成。</p>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== RESEARCH ===================== -->
+  <section id="refs">
+    <div class="wrap">
+      <div class="kicker round">岸边捞到的漂流瓶 · 参考作品</div>
+      <h2 class="sec-title round">「桥的手感」去哪里找</h2>
+      <p class="lede">你要求的调研。每个瓶子里装着一个能直接搬进鸭妈妈身体里的手感经验。</p>
+      <div class="refs">
+        <article class="ref card sheet">
+          <svg class="ico" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="22" style="fill:var(--water);stroke:var(--ink);stroke-width:2.5"/><path d="M8 40 L52 20" style="stroke:var(--ink);stroke-width:3"/><circle cx="34" cy="20" r="6" style="fill:var(--duck);stroke:var(--ink);stroke-width:2"/></svg>
+          <h3>Super Monkey Ball</h3>
+          <p class="take">你操控的是关卡，不是角色。镜头随着倾斜反向滚动和俯仰，把倾斜感「卖」给玩家。</p>
+          <div class="lesson">→ 镜头要帮鸭妈妈一起「歪」</div>
+        </article>
+        <article class="ref card sheet">
+          <svg class="ico" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="14" r="8" style="fill:var(--duckling);stroke:var(--ink);stroke-width:2.5"/><path d="M30 22 v16 M30 26 l-14 8 M30 26 l12 -8 M30 38 l-10 14 M30 38 l14 10" style="stroke:var(--ink);stroke-width:4;stroke-linecap:round;fill:none"/></svg>
+          <h3>Human Fall Flat / Gang Beasts</h3>
+          <p class="take">Active ragdoll：虚拟肌肉拼命站稳，被物理打败的那一刻才好笑；倒地后被「提起」复苏。</p>
+          <div class="lesson">→ 宝宝要先努力，然后滑稽地失败</div>
+        </article>
+        <article class="ref card sheet">
+          <svg class="ico" viewBox="0 0 60 60" aria-hidden="true"><path d="M4 40 h52" style="stroke:var(--ink);stroke-width:3"/><path d="M8 40 L20 24 L32 40 L44 24 L56 40" style="fill:none;stroke-width:4;stroke-linejoin:round;stroke:var(--lily)"/><path d="M20 24 H44" style="stroke:var(--must);stroke-width:4"/></svg>
+          <h3>Poly Bridge</h3>
+          <p class="take">应力颜色从绿到红实时显示；所有关节都在晃；失败是一场奇观，还能慢放回看坍塌。</p>
+          <div class="lesson">→ 失衡要看得见，失败要回放得出</div>
+        </article>
+        <article class="ref card sheet warn">
+          <svg class="ico" viewBox="0 0 60 60" aria-hidden="true"><path d="M6 44 L54 28" style="stroke:var(--ink);stroke-width:5;stroke-linecap:round"/><path d="M26 50 l4 -14 l4 14z" style="fill:var(--ink-soft)"/><circle cx="46" cy="22" r="4" style="fill:var(--must)"/><circle cx="40" cy="24" r="4" style="fill:var(--must)"/><circle cx="50" cy="18" r="4" style="fill:var(--must)"/></svg>
+          <h3>Fall Guys「See Saw」反面教训</h3>
+          <p class="take">不懂物理的玩家会觉得被坑；人群挤在一侧会让跷跷板卡死。</p>
+          <div class="lesson">→ 需要清晰可读的反馈，别让玩家觉得冤</div>
+        </article>
+        <article class="ref card sheet">
+          <svg class="ico" viewBox="0 0 60 60" aria-hidden="true"><use href="#mama" x="2" y="14" width="56" height="34"/><use href="#duckling" x="14" y="12" width="14" height="12"/><use href="#duckling" x="26" y="11" width="14" height="12"/></svg>
+          <h3>现实里的鸭鸭</h3>
+          <p class="take">秋沙鸭、䴙䴘、天鹅都会背着幼崽游，䴙䴘潜水时宝宝仍趴在背上；绿头鸭则是一串宝宝跟在身后。</p>
+          <div class="lesson">→ 「背上」和「身后排队」两种形态都有现实依据</div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== LOTUS ===================== -->
+  <section id="lotus">
+    <div class="wrap">
+      <div class="kicker round">技巧一 · Lotus Blossom 莲花绽放</div>
+      <h2 class="sec-title round">一朵莲，八片瓣，开满整个池塘</h2>
+      <p class="lede">莲花图开了两轮。第一轮从 SHIFT 的词义里长出了你的「重心转移」；第二轮以你定下的「鸭妈妈背宝宝过河」为花心，教练向八个方向展开。点一片花瓣看看里面藏了什么。</p>
+      <div class="lotus-wrap">
+        <div class="lotus" id="lotusGrid" role="group" aria-label="莲花图 3×3 网格"></div>
+        <div class="petal-detail card sheet" id="petalDetail" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== FORCED RELATIONSHIPS ===================== -->
+  <section id="pairs">
+    <div class="wrap">
+      <div class="kicker round">技巧二 · Forced Relationships 强制关联</div>
+      <h2 class="sec-title round">鸭妈妈 × 一点都不相干的东西</h2>
+      <p class="lede">把鸭妈妈和随机事物硬凑成一对，看会冒出什么奇怪的水花。橙色描边的那几对，后来漂进了收敛清单。</p>
+      <div class="pairs">
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">俄</span></div><h3>俄罗斯方块</h3><p>宝宝从天上掉到背上，玩家决定摆放位置。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">叠</span></div><h3>叠叠乐 Jenga</h3><p>宝宝叠罗汉成塔，越高越晃，塔高就是分数。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">地</span></div><h3>早高峰地铁</h3><p>河中小岛是站台，每站有宝宝上背，有宝宝下车回家。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">外</span></div><h3>外卖</h3><p>接单，把别人家走丢的宝宝送回对岸巢穴。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">杂</span></div><h3>杂技团</h3><p>岸边观众看你驮着宝宝塔表演，姿势越险越加分。</p></article>
+        <article class="pair card echo"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">乐</span></div><h3>交响乐</h3><p>每只宝宝是一个音符，平衡时合奏，失衡时走调。</p></article>
+        <article class="pair card echo"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">检</span></div><h3>机场安检</h3><p>混进来的冒牌宝宝（小乌龟、小鸡、毛线球）要抖下去，真宝宝要留住。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">雪</span></div><h3>雪崩</h3><p>上游冲下来一大批走散的宝宝，能接多少接多少。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">摄</span></div><h3>摄影</h3><p>经过游客镜头时保持全员在背上，就能收藏一张「明信片」。</p></article>
+        <article class="pair card echo"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">机</span></div><h3>手机重力感应</h3><p>手机网页版直接用陀螺仪，倾斜手机就是倾斜鸭妈妈。</p></article>
+        <article class="pair card"><div class="x"><span class="a">鸭</span><i>×</i><span class="b">泳</span></div><h3>游泳教练</h3><p>宝宝在背上慢慢学会游泳，后期可以「放飞」一只换分数。</p></article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== DIAL ===================== -->
+  <section id="dial">
+    <div class="wrap">
+      <div class="kicker round">技巧三 · Crank the Dial to 11 拧到 11 档</div>
+      <h2 class="sec-title round">把一个维度拧到荒唐</h2>
+      <p class="lede">九个旋钮刻度，每一格都是一次「如果把它推到极端会怎样」。转动旋钮，或者点刻度。</p>
+      <div class="dial-wrap">
+        <div class="dial">
+          <svg viewBox="0 0 400 400" id="dialSvg" role="group" aria-label="九档旋钮">
+            <circle cx="200" cy="200" r="150" style="fill:var(--water);stroke:var(--ink);stroke-width:4"/>
+            <circle cx="200" cy="200" r="118" style="fill:var(--card);stroke:var(--line);stroke-width:3"/>
+            <circle class="ripple" cx="200" cy="200" r="118" style="fill:none;stroke:var(--water-2);stroke-width:2"/>
+            <g id="knob">
+              <circle cx="200" cy="200" r="78" style="fill:var(--duck);stroke:var(--ink);stroke-width:4"/>
+              <path d="M200 132 v34" style="stroke:var(--ink);stroke-width:8;stroke-linecap:round"/>
+              <use href="#duckling" x="164" y="178" width="72" height="60"/>
+            </g>
+            <g id="ticks"></g>
+          </svg>
+          <label class="sr" for="dialRange">旋钮档位</label>
+          <input type="range" min="0" max="8" value="3" id="dialRange" class="dial-range">
+        </div>
+        <div class="dial-out card sheet" id="dialOut" aria-live="polite"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ONE FEATURE ===================== -->
+  <section id="one">
+    <div class="wrap">
+      <div class="kicker round">技巧四 · One Feature Only 只留一个</div>
+      <h2 class="sec-title round">熄灯。只给一样东西打光。</h2>
+      <p class="lede">单人、4 周。这一轮的任务是「砍」：只保留一个能力，把它做到极致。</p>
+      <div class="stage" id="stage">
+        <div class="spot">
+          <svg class="cone" viewBox="0 0 240 150" aria-hidden="true">
+            <ellipse cx="120" cy="135" rx="110" ry="12" style="fill:rgba(255,236,170,.25)"/>
+            <use href="#mama" x="40" y="50" width="160" height="94"/>
+            <use href="#duckling" x="78" y="44" width="26" height="22"/>
+            <use href="#duckling" x="100" y="40" width="26" height="22"/>
+            <use href="#duckling" x="122" y="46" width="26" height="22"/>
+          </svg>
+          <h3 class="round">只留倾斜</h3>
+          <p>取消前进操作，河流自动推着鸭妈妈往下游漂。玩家只负责一件事：重心。</p>
+        </div>
+        <div class="dim">
+          <div><b>只留 Shift</b><br>倾斜由水自动发生，玩家只有一个按键（扑翅）去救场。</div>
+          <div><b>宝宝 AI 只要 4 种状态</b><br>发呆 / 乱逛 / 受惊 / 睡觉，组合出全部性格。</div>
+          <div><b>美术</b><br>低多边形 + 卡通描边，简单几何体加绒毛着色。</div>
+          <div><b>内容</b><br>同一条河的晨 / 雨 / 夜三个时段复用素材做 3 关 + 无尽模式。</div>
+          <div><b>布娃娃省着用</b><br>平时是刚体 + 摇摆动画，落水瞬间才变布娃娃。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== MOSCOW ===================== -->
+  <section id="moscow">
+    <div class="wrap">
+      <div class="kicker round">收敛 · MoSCoW</div>
+      <h2 class="sec-title round">谁上背，谁跟着，谁在岸边，谁顺流漂走</h2>
+      <p class="lede">按「单人 4 周 Jam」的构建范围分档。金色的那几颗，是从你的点子直接长出来的。</p>
+      <div class="ponds">
+        <div class="pond card must sheet">
+          <div class="head">
+            <svg viewBox="0 0 120 60" aria-hidden="true"><use href="#mama" x="10" y="16" width="96" height="44"/><use href="#duckling" x="34" y="8" width="18" height="15"/><use href="#duckling" x="50" y="6" width="18" height="15"/><use href="#duckling" x="66" y="10" width="18" height="15"/></svg>
+            <span class="lab round">MUST</span><span class="meta">稳稳驮在背上 · 没它就不是这个游戏</span>
+          </div>
+          <ul>
+            <li class="star">鸭妈妈 + 背上宝宝物理</li>
+            <li>鼠标模拟量倾斜</li>
+            <li>河流自动推进（玩家只管重心）</li>
+            <li>Shift 唯一技能：「嘎！」召集 + 扑翅把宝宝拉回中心（冷却）</li>
+            <li>宝宝 4 状态 AI 组合出 4 种性格：好奇 / 瞌睡 / 小胖 / 打架双胞胎</li>
+            <li>3 种危险：漂流物、皮划艇尾浪、老鹰阴影预警</li>
+            <li class="star">落水「啾！」布娃娃 + 夸张水花</li>
+            <li>上岸点名 = 星级</li>
+            <li>浏览器可玩</li>
+          </ul>
+        </div>
+        <div class="pond card should sheet">
+          <div class="head">
+            <svg viewBox="0 0 120 60" aria-hidden="true"><use href="#mama" x="40" y="16" width="76" height="40"/><use href="#duckling" x="22" y="36" width="18" height="15"/><use href="#duckling" x="4" y="38" width="18" height="15"/></svg>
+            <span class="lab round">SHOULD</span><span class="meta">在身后排队跟着 · 时间够就带上</span>
+          </div>
+          <ul>
+            <li>落水宝宝被捞起后改为身后排队游（背上↔身后状态转换，失败不惩罚死）</li>
+            <li>失败慢动作回放</li>
+            <li>啾啾音高 = 紧张度</li>
+            <li>给宝宝起名</li>
+            <li>全家福结局</li>
+            <li>同一条河晨 / 雨 / 夜 3 关</li>
+            <li>世代转换结局彩蛋（宝宝长大驮老鸭妈妈）</li>
+          </ul>
+        </div>
+        <div class="pond card could sheet">
+          <div class="head">
+            <svg viewBox="0 0 120 60" aria-hidden="true"><path d="M0 46 q30 -10 60 0 t60 0 v14 h-120z" style="fill:var(--lily)"/><use href="#duckling" x="40" y="22" width="26" height="22"/><use href="#duckling" x="70" y="26" width="22" height="18"/></svg>
+            <span class="lab round">COULD</span><span class="meta">在岸边张望 · 有余力再说</span>
+          </div>
+          <ul>
+            <li>无尽漂流 + 排行</li>
+            <li>冬季冰面关</li>
+            <li>冒牌宝宝</li>
+            <li>手机陀螺仪</li>
+            <li>平衡 = 音乐和谐系统</li>
+            <li>Shift 换挡加速</li>
+          </ul>
+        </div>
+        <div class="pond card wont sheet">
+          <div class="head">
+            <svg viewBox="0 0 120 60" aria-hidden="true"><path d="M0 40 q15 -6 30 0 t30 0 t30 0 t30 0" style="fill:none;stroke:var(--wont);stroke-width:3"/><use href="#duckling" x="76" y="16" width="22" height="18" opacity=".5"/><path d="M10 26 h40" style="stroke:var(--wont);stroke-width:3;stroke-dasharray:4 6"/></svg>
+            <span class="lab round">WON'T</span><span class="meta">本次不做 · 祝它们一路顺风</span>
+          </div>
+          <ul>
+            <li>完整 active ragdoll</li>
+            <li>鸭爸爸换班双角色</li>
+            <li>太空尺度</li>
+            <li>多人</li>
+            <li>叠罗汉塔玩法</li>
+            <li>镜头极近特写模式</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== SYNTHESIS / CLIMAX ===================== -->
+  <section id="synth" class="climax">
+    <div class="wrap">
+      <div class="kicker round">入海口 · 风暴过后留下的东西</div>
+      <h2 class="sec-title round">三层涟漪：SHIFT 从按键一路扣到结局</h2>
+      <p class="lede">评委从读操作说明到看完结局，每一层都能感到扣题。</p>
+      <div class="three">
+        <div class="layer card sheet">
+          <svg class="ring" viewBox="0 0 110 110" aria-hidden="true"><circle cx="55" cy="55" r="18"/><circle class="r2" cx="55" cy="55" r="32"/><circle class="r3" cx="55" cy="55" r="48"/><use href="#duckling" x="40" y="43" width="30" height="25"/></svg>
+          <div class="no">第一层 · 动词</div>
+          <h3>shift your weight</h3>
+          <p>重心转移是全游戏唯一的动词。它也是你在这场风暴里种下的第一颗种子。</p>
+        </div>
+        <div class="layer card sheet">
+          <svg class="ring" viewBox="0 0 110 110" aria-hidden="true"><circle cx="55" cy="55" r="18"/><circle class="r2" cx="55" cy="55" r="32"/><circle class="r3" cx="55" cy="55" r="48"/><rect x="30" y="42" width="50" height="26" rx="6" style="fill:var(--card);stroke:var(--ink);stroke-width:2.5"/><text x="55" y="60" text-anchor="middle" style="font-size:13px;font-weight:900;fill:var(--ink)">Shift</text></svg>
+          <div class="no">第二层 · 按键</div>
+          <h3>Shift 键</h3>
+          <p>唯一的按键：「嘎！」一声召集宝宝，扑翅把它们拉回中心。</p>
+        </div>
+        <div class="layer card sheet">
+          <svg class="ring" viewBox="0 0 110 110" aria-hidden="true"><circle cx="55" cy="55" r="18"/><circle class="r2" cx="55" cy="55" r="32"/><circle class="r3" cx="55" cy="55" r="48"/><use href="#mama" x="28" y="48" width="54" height="32"/><use href="#mama" x="40" y="34" width="30" height="18"/></svg>
+          <div class="no">第三层 · 情感</div>
+          <h3>世代转换</h3>
+          <p>最后一关，长大的宝宝驮起已经老了的鸭妈妈。情感高潮。</p>
+        </div>
+      </div>
+
+      <div class="insights">
+        <article class="ins card sheet">
+          <h3 class="round">背上 ⇄ 身后：把挫败变成乐趣</h3>
+          <svg viewBox="0 0 320 110" aria-hidden="true">
+            <path d="M0 80 q40 -8 80 0 t80 0 t80 0 t80 0 v30 h-320z" style="fill:var(--water)"/>
+            <use href="#mama" x="8" y="34" width="100" height="58"/>
+            <use href="#duckling" x="34" y="24" width="20" height="17"/><use href="#duckling" x="52" y="22" width="20" height="17"/>
+            <path d="M126 46 h50 m-8 -7 l8 7 -8 7 M176 66 h-50 m8 -7 l-8 7 8 7" style="fill:none;stroke:var(--beak);stroke-width:3;stroke-linecap:round"/>
+            <use href="#mama" x="226" y="34" width="90" height="52"/>
+            <use href="#duckling" x="204" y="66" width="20" height="17"/><use href="#duckling" x="186" y="68" width="20" height="17"/>
+          </svg>
+          <p>Fall Guys 那种「被坑」的挫败，在这里翻转了：宝宝落水不出局，捞起来就在身后排队游（绿头鸭式）。失误让队伍更难带，难度随失误自然上升。</p>
+        </article>
+        <article class="ins card sheet">
+          <h3 class="round">世代转换结局：几乎零成本的眼泪</h3>
+          <svg viewBox="0 0 320 110" aria-hidden="true">
+            <path d="M0 84 q40 -8 80 0 t80 0 t80 0 t80 0 v26 h-320z" style="fill:var(--water)"/>
+            <use href="#mama" x="20" y="40" width="80" height="48"/><use href="#duckling" x="44" y="30" width="22" height="18"/>
+            <text x="160" y="62" text-anchor="middle" style="font-size:13px;font-weight:700;fill:var(--ink-soft)">很多年后</text>
+            <path d="M130 70 h60" style="stroke:var(--ink-soft);stroke-width:2;stroke-dasharray:3 5"/>
+            <use href="#mama" x="200" y="30" width="110" height="64"/><use href="#mama" x="236" y="14" width="50" height="30" opacity=".75"/>
+          </svg>
+          <p>复用模型、交换角色就能做出来，却提供了 Jam 作品里稀缺的情感落点。这是最值得做的 SHOULD。</p>
+        </article>
+        <article class="ins card sheet">
+          <h3 class="round">自动流动的河：范围的生命线</h3>
+          <svg viewBox="0 0 320 110" aria-hidden="true">
+            <path d="M0 55 C 60 20, 100 90, 160 55 S 260 20, 320 55" style="fill:none;stroke:var(--water);stroke-width:30;stroke-linecap:round"/>
+            <path d="M0 55 C 60 20, 100 90, 160 55 S 260 20, 320 55" style="fill:none;stroke:var(--foam);stroke-width:2;stroke-dasharray:4 12"/>
+            <g style="fill:var(--card);stroke:var(--ink);stroke-width:2">
+              <circle cx="70" cy="50" r="9"/><circle cx="160" cy="55" r="9"/><circle cx="250" cy="40" r="9"/>
+            </g>
+            <text x="70" y="24" text-anchor="middle" style="font-size:11px;fill:var(--ink-soft)">漂流物</text>
+            <text x="160" y="92" text-anchor="middle" style="font-size:11px;fill:var(--ink-soft)">尾浪</text>
+            <text x="250" y="16" text-anchor="middle" style="font-size:11px;fill:var(--ink-soft)">老鹰阴影</text>
+          </svg>
+          <p>One Feature Only 的「河流自动推进」去掉了移动操作，关卡就变成一条带事件时间轴的河。单人 4 周，可控。</p>
+        </article>
+        <article class="ins card sheet open">
+          <h3 class="round">还没决定的事：用哪台引擎？</h3>
+          <p>需要在原型的第一周验证浏览器端 3D 物理性能。三条候选支流：</p>
+          <div class="engines"><span>Godot 4 Web</span><span>Unity WebGL</span><span>Three.js + 物理库</span></div>
+          <p style="margin-top:10px">这是这场风暴留下的唯一一个问号，也是下一步的第一件事。</p>
+        </article>
+      </div>
+
+      <div class="titles" aria-label="工作标题候选">
+        <div class="sign round">《Duck Shift》</div>
+        <div class="sign round">《嘎！稳住》</div>
+        <div class="sign round">《Mama Duck's Shift》</div>
+      </div>
+      <p class="titles-note">工作标题候选 · 插在岸边，等你来挑</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <div class="ducks" aria-hidden="true">
+        <svg viewBox="0 0 320 110">
+          <path d="M0 84 q40 -8 80 0 t80 0 t80 0 t80 0 v26 h-320z" style="fill:var(--water)"/>
+          <g class="bob"><use href="#mama" x="96" y="30" width="130" height="76"/></g>
+          <g class="bob d2"><use href="#duckling" x="124" y="22" width="26" height="22"/></g>
+          <g class="bob d3"><use href="#duckling" x="148" y="18" width="26" height="22"/></g>
+          <g class="bob"><use href="#duckling" x="172" y="24" width="26" height="22"/></g>
+          <g class="bob d2"><use href="#duckling" x="60" y="70" width="22" height="18"/></g>
+        </svg>
+      </div>
+      <div class="count">
+        <span class="tag user">你的点子 4 个</span>
+        <span class="tag coach">教练的点子 76 个</span>
+        <span class="tag pick">洞见 13 条</span>
+      </div>
+      <p>GitHub Game Off 2026 · 主题 SHIFT · 头脑风暴于 2026-11-02<br>技巧：Lotus Blossom → Forced Relationships → Crank the Dial to 11 → One Feature Only → MoSCoW</p>
+      <p>四周后，愿每一只宝宝都在背上。</p>
+    </div>
+  </footer>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs){ var e=document.createElementNS(NS,tag); for(var k in attrs) e.setAttribute(k,attrs[k]); return e; }
+
+  /* ---------- countdown ---------- */
+  var cd = document.getElementById("cd");
+  var deadline = Date.UTC(2026, 11, 1, 21, 37, 0); // 13:37 PST = 21:37 UTC
+  function tickCd(){
+    var ms = deadline - Date.now();
+    if (ms <= 0){ cd.textContent = "已截止"; return; }
+    var d = Math.floor(ms/86400000), h = Math.floor(ms%86400000/3600000);
+    cd.textContent = d + " 天 " + h + " 时";
+  }
+  tickCd(); setInterval(tickCd, 60000);
+
+  /* ---------- toy: shift your weight ---------- */
+  var toy = document.getElementById("toy");
+  var mamaG = document.getElementById("mamaG");
+  var kidsG = document.getElementById("kids");
+  var splashes = document.getElementById("splashes");
+  var bubble = document.getElementById("quackBubble");
+  var quackBtn = document.getElementById("quackBtn");
+  var onBackEl = document.getElementById("onBack");
+  var splashEl = document.getElementById("splashCount");
+  var root = document.documentElement;
+  var PIVOT_X = 290, PIVOT_Y = 200, BACK_Y = 166, HALF = 72;
+  var kinds = [
+    {name:"好奇鬼", w:1, wander:1.4, fric:.94},
+    {name:"瞌睡虫", w:1, wander:.15, fric:.985},
+    {name:"小胖墩", w:2, wander:.4, fric:.95},
+    {name:"打架双胞胎", w:1, wander:1.0, fric:.95}
+  ];
+  var kids = kinds.map(function(k, i){
+    var g = el("g", {});
+    var u = el("use", {href:"#duckling", x:-16, y:-26, width: k.w>1?40:32, height: k.w>1?33:27});
+    g.appendChild(u); kidsG.appendChild(g);
+    return {k:k, g:g, pos:(i-1.5)*0.35, v:0, state:"on", t:0, fy:0, rot:0};
+  });
+  var control = 0, tilt = 0, splashN = 0, lastQuack = -9;
+  function setControlFromX(clientX){
+    var r = toy.getBoundingClientRect();
+    control = Math.max(-1, Math.min(1, ((clientX - r.left)/r.width - .5) * 2.2));
+  }
+  toy.addEventListener("pointermove", function(e){ setControlFromX(e.clientX); });
+  toy.addEventListener("pointerdown", function(e){ if(e.target!==quackBtn) setControlFromX(e.clientX); });
+  toy.addEventListener("keydown", function(e){
+    if (e.key === "ArrowLeft"){ control = Math.max(-1, control - .2); e.preventDefault(); }
+    if (e.key === "ArrowRight"){ control = Math.min(1, control + .2); e.preventDefault(); }
+  });
+  window.addEventListener("keydown", function(e){ if (e.key === "Shift" && inView) quack(); });
+  quackBtn.addEventListener("click", function(e){ e.stopPropagation(); quack(); });
+  var now = 0;
+  function quack(){
+    if (now - lastQuack < 2.2) return;
+    lastQuack = now;
+    kids.forEach(function(d){ if(d.state==="on") d.v -= d.pos * 2.6; });
+    bubble.setAttribute("opacity","1");
+    quackBtn.disabled = true;
+    setTimeout(function(){ bubble.setAttribute("opacity","0"); }, 700);
+    setTimeout(function(){ quackBtn.disabled = false; }, 2200);
+  }
+  function splashAt(x){
+    var g = el("g", {});
+    var c1 = el("ellipse", {cx:x, cy:232, rx:8, ry:3, style:"fill:none;stroke:var(--foam);stroke-width:3"});
+    var t = el("text", {x:x, y:196, "text-anchor":"middle", style:"font-size:20px;font-weight:900;fill:var(--beak)"});
+    t.textContent = "啾！";
+    g.appendChild(c1); g.appendChild(t); splashes.appendChild(g);
+    var t0 = performance.now();
+    (function an(){
+      var p = (performance.now()-t0)/900;
+      if (p >= 1){ splashes.removeChild(g); return; }
+      c1.setAttribute("rx", 8 + p*40); c1.setAttribute("ry", 3 + p*8); c1.setAttribute("opacity", 1-p);
+      t.setAttribute("y", 196 - p*30); t.setAttribute("opacity", 1-p*p);
+      requestAnimationFrame(an);
+    })();
+  }
+  var inView = true, last = performance.now();
+  if ("IntersectionObserver" in window){
+    new IntersectionObserver(function(es){ inView = es[0].isIntersecting; }).observe(toy);
+  }
+  function frame(ts){
+    var dt = Math.min(.05, (ts - last)/1000); last = ts;
+    if (inView){
+      now += dt;
+      var torque = 0, count = 0;
+      kids.forEach(function(d){ if(d.state==="on"){ torque += d.pos * d.k.w; count++; } });
+      var waves = reduce ? 0 : (Math.sin(now*1.3)*3 + Math.sin(now*.47+1)*4);
+      var target = control * 24 + torque * 7 + waves;
+      tilt += (target - tilt) * Math.min(1, dt*4);
+      var rad = tilt * Math.PI/180;
+      mamaG.setAttribute("transform", "rotate(" + tilt.toFixed(2) + " " + PIVOT_X + " " + PIVOT_Y + ")");
+      if (!reduce) root.style.setProperty("--page-tilt", (tilt*0.012).toFixed(3) + "deg");
+      kids.forEach(function(d, i){
+        if (d.state === "on"){
+          var wander = reduce ? 0 : (Math.random() < dt*d.k.wander ? (Math.random()-.5)*1.6 : 0);
+          d.v += (Math.sin(rad) * 2.4) * dt + wander;
+          d.v *= Math.pow(d.k.fric, dt*60);
+          d.pos += d.v * dt;
+          if (Math.abs(d.pos) > 1.12){
+            d.state = "fall"; d.t = 0; d.dir = d.pos > 0 ? 1 : -1;
+            splashN++; splashEl.textContent = splashN;
+            var wx = PIVOT_X + Math.cos(rad) * d.pos * HALF;
+            setTimeout(function(){ splashAt(wx + d.dir*20); }, 380);
+          }
+          var x = PIVOT_X + d.pos * HALF;
+          var bulge = (1 - Math.min(1, d.pos*d.pos)) * 14;
+          var hop = reduce ? 0 : Math.abs(Math.sin(now*6 + i*1.7)) * (d.k.name==="瞌睡虫" ? 0 : 1.5);
+          d.g.setAttribute("transform", "translate(" + x.toFixed(1) + " " + (BACK_Y - bulge - hop).toFixed(1) + ")" + (d.v < 0 ? " scale(-1 1)" : ""));
+          d.g.setAttribute("opacity", "1");
+        } else if (d.state === "fall"){
+          d.t += dt;
+          var fx = PIVOT_X + d.dir*(HALF*1.12 + d.t*60);
+          var fy = BACK_Y + d.t*d.t*260 - d.t*40;
+          d.g.setAttribute("transform", "translate(" + fx.toFixed(1) + " " + fy.toFixed(1) + ") rotate(" + (d.dir*d.t*540).toFixed(0) + ")");
+          d.g.setAttribute("opacity", Math.max(0, 1 - d.t*1.2).toFixed(2));
+          if (d.t > 1.5){ d.state = "on"; d.pos = (Math.random()-.5)*.3; d.v = 0; }
+        }
+      });
+      onBackEl.textContent = kids.filter(function(d){ return d.state==="on"; }).length;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---------- lotus ---------- */
+  var petals = [
+    {t:"河流危险", items:[["漩涡","把鸭妈妈原地打转，离心力把宝宝甩向外侧"],["漂流物","树枝、易拉罐、橡皮小黄鸭顺流撞来，撞击点决定重心偏向"],["跳鱼","鱼突然跃出水面，把一侧顶高"],["苍鹭 / 老鹰俯冲","阴影先出现预警，宝宝吓得全挤到背的另一侧"],["下雨","宝宝挤成一团取暖，重心集中但一团滚动更危险"],["小瀑布落差","下落瞬间失重，宝宝短暂飘起，落回时要接稳"],["皮划艇 / 渡轮尾浪","一波接一波的周期性摇晃"],["侧风","绒毛一边倒，宝宝被吹向下风侧"]]},
+    {t:"宝宝性格", items:[["好奇鬼","追蝴蝶蜻蜓爬到背的边缘"],["瞌睡虫","睡着后沿羽毛慢慢下滑，不吵不闹最危险"],["小胖墩","重量是其他宝宝的两倍"],["打架双胞胎","滚成一团在背上横冲直撞"],["叛逆期","故意跳水，要游过去接"],["怕水鬼","总想爬到妈妈头顶最高点，挡住视野"],["贪吃鬼","看到漂来的面包屑就冲过去"],["冒牌货","混进一只小天鹅或小鸡（丑小鸭梗），行为完全不一样"]]},
+    {t:"操作", items:[["全模拟量","鼠标左右 = 左右倾，鼠标上下 = 前后倾，单手"],["Shift = 抖羽毛","扑翅膀把宝宝往中心弹回（冷却）"],["Shift = 潜水","䴙䴘真实行为，宝宝留在背上躲老鹰，潜太久会呛水冒泡"],["Shift = 「嘎！」","所有宝宝瞬间朝中心集合"],["Shift = 换挡","加速划水，越快重心越不稳（shift gears 双关）"]]},
+    {t:"结构", items:[["此岸到彼岸","带过河的宝宝数 = 星级"],["回头捞","落水宝宝扑腾求救，可回头捞起，代价是时间和被冲远"],["3 → 12 只","宝宝数量随关卡增长，终局像秋沙鸭那样驮一大坨"],["背上 ⇄ 身后","捞起的宝宝改在身后排队游，队伍越长转弯越难"],["一镜到底","一条长河，用桥洞和小岛作检查点"],["无尽漂流","本地排行榜：漂了多远、保住几只"]]},
+    {center:true, t:"鸭妈妈<br>背宝宝过河"},
+    {t:"SHIFT 扣题", items:[["换班","鸭爸爸鸭妈妈轮班驮娃，按 Shift 交接，宝宝要从一个背跳到另一个背"],["季节转换","春夏秋冬推进，冬天河面结冰变成滑冰关"],["视角转换","危机时切到某只宝宝的第一人称，世界天旋地转"],["唯一动词","重心转移是全游戏唯一的动词"]]},
+    {t:"打击感", items:[["「啾！」","宝宝落水布娃娃式旋转飞出，水花夸张"],["慢动作回放","失败瞬间自动截成 GIF，可下载分享"],["绒毛软体","倾斜时绒毛先甩"],["上岸点名","宝宝一只只蹦下来排队点名，缺的那只位置空着"]]},
+    {t:"音效", items:[["啾啾音高","随宝宝紧张程度升高，闭着眼也能听出危险"],["走调的乐队","平衡越稳背景音乐越和谐，失衡时乐器一件件走调"]]},
+    {t:"情感 · 分享", items:[["起名","开局让玩家给每只宝宝起名"],["全家福","通关拍全家福，落水的宝宝湿漉漉地挤在边上，不让玩家太难过"]]}
+  ];
+  var grid = document.getElementById("lotusGrid");
+  var detail = document.getElementById("petalDetail");
+  var btns = [];
+  function show(i){
+    var p = petals[i];
+    btns.forEach(function(b, j){ if(b) b.setAttribute("aria-pressed", j===i ? "true" : "false"); });
+    var html = "<h3 class=\"round\">" + p.t + "</h3><ul>";
+    p.items.forEach(function(it){ html += "<li><b>" + it[0] + "</b>：" + it[1] + "</li>"; });
+    detail.innerHTML = html + "</ul><p class=\"pre-lotus\"><span class=\"tag coach\">教练的点子</span> 以你定下的花心展开</p>";
+  }
+  petals.forEach(function(p, i){
+    var b = document.createElement(p.center ? "div" : "button");
+    b.className = "petal" + (p.center ? " center round" : " round");
+    if (p.center){
+      b.innerHTML = "<span class=\"t\">" + p.t + "</span><span class=\"c\" style=\"color:#3d2f27\">你的点子</span>";
+    } else {
+      b.type = "button";
+      b.innerHTML = "<span class=\"t\">" + p.t + "</span><span class=\"c\">" + p.items.length + " 个点子</span>";
+      b.addEventListener("click", function(){ show(i); });
+    }
+    btns.push(p.center ? null : b);
+    grid.appendChild(b);
+  });
+  show(1);
+  if ("IntersectionObserver" in window && !reduce){
+    var io = new IntersectionObserver(function(es){ if (es[0].isIntersecting){ grid.classList.add("bloom"); io.disconnect(); } }, {threshold:.3});
+    io.observe(grid);
+  } else { grid.classList.add("bloom"); }
+
+  /* ---------- dial ---------- */
+  var dials = [
+    {t:"数量拉满", d:"驮 100 只宝宝，像一座会走的毛茸茸小山。真实新闻：有秋沙鸭身后跟着 76 只宝宝。"},
+    {t:"河流拉满", d:"激流漂流，终点是尼亚加拉级大瀑布。"},
+    {t:"体型反转", d:"宝宝比妈妈还大，一只巨婴压在小鸭妈妈背上。"},
+    {t:"时间拉满", d:"一生的过河：宝宝长大后轮到它驮你。最后一关，你变成被驮着的老鸭。", note:"<span class=\"tag pick\">漂进了 SHOULD</span> 后来成了「世代转换结局」，SHIFT 的第三层涟漪。"},
+    {t:"可爱拉满", d:"每只宝宝落水时喊一声「妈妈！」"},
+    {t:"物理拉满", d:"宝宝是果冻，落背会弹，碰撞会粘在一起。"},
+    {t:"速度拉满", d:"鸭妈妈喝了咖啡变快艇，河道变赛道。", note:"<span class=\"tag coach\">回声</span> 与「Shift 换挡加速」同源，留在 COULD。"},
+    {t:"镜头拉满", d:"极近特写，只能看见背和宝宝，河流靠声音和阴影感知。"},
+    {t:"尺度拉满", d:"小水沟 → 大河 → 大海 → 太空。回收了星球点子：最终鸭妈妈驮着地球。", note:"<span class=\"tag user\">回到源头</span> 你最早问的「如果是星球呢？」在这里绕了一圈回来。"}
+  ];
+  var ticks = document.getElementById("ticks");
+  var knob = document.getElementById("knob");
+  var out = document.getElementById("dialOut");
+  var range = document.getElementById("dialRange");
+  var START = -135, SPAN = 270;
+  var tickEls = dials.map(function(d, i){
+    var a = (START + SPAN * i/(dials.length-1)) * Math.PI/180;
+    var x = 200 + Math.sin(a)*168, y = 200 - Math.cos(a)*168;
+    var g = el("g", {"class":"tick", tabindex:"0", role:"button", "aria-label": "第 " + (i+3) + " 档：" + d.t});
+    g.appendChild(el("circle", {cx:x, cy:y, r:20}));
+    var tx = el("text", {x:x, y:y+5, "text-anchor":"middle"}); tx.textContent = i+3;
+    g.appendChild(tx);
+    g.addEventListener("click", function(){ setDial(i); });
+    g.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); setDial(i); } });
+    ticks.appendChild(g);
+    return g;
+  });
+  function setDial(i){
+    range.value = i;
+    var deg = START + SPAN * i/(dials.length-1);
+    knob.style.transform = "rotate(" + deg + "deg)";
+    tickEls.forEach(function(t, j){ t.classList.toggle("on", j===i); });
+    var d = dials[i];
+    out.innerHTML = "<div class=\"lvl round\">" + (i===dials.length-1 ? "11" : (i+3)) + "</div><h3 class=\"round\">" + d.t + "</h3><p>" + d.d + "</p>" + (d.note ? "<p class=\"note\">" + d.note + "</p>" : "");
+  }
+  range.addEventListener("input", function(){ setDial(+range.value); });
+  setDial(3);
+
+  /* ---------- spotlight follows pointer ---------- */
+  var stage = document.getElementById("stage");
+  if (!reduce){
+    stage.addEventListener("pointermove", function(e){
+      var r = stage.getBoundingClientRect();
+      stage.style.setProperty("--sx", ((e.clientX-r.left)/r.width*100).toFixed(1) + "%");
+      stage.style.setProperty("--sy", ((e.clientY-r.top)/r.height*100).toFixed(1) + "%");
+    });
+    stage.addEventListener("pointerleave", function(){ stage.style.setProperty("--sx","50%"); stage.style.setProperty("--sy","40%"); });
+  }
+})();
+</script>
+</body>
+</html>

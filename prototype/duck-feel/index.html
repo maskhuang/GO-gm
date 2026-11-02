@@ -1,0 +1,838 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Duck Shift 手感原型</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3e8;
+    font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  canvas { display: block; touch-action: none; }
+  #hud { position: fixed; left: 12px; top: 12px; color: #12324a; background: rgba(255,255,255,.8);
+    padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.7; pointer-events: none; min-width: 150px; }
+  #hud b { font-size: 16px; }
+  #cd { height: 6px; background: #dfe9ef; border-radius: 3px; overflow: hidden; margin-top: 2px; }
+  #cdFill { height: 100%; width: 100%; background: #f2a33a; }
+  #help { position: fixed; left: 12px; bottom: 12px; color: #12324a; background: rgba(255,255,255,.7);
+    padding: 6px 10px; border-radius: 10px; font-size: 12px; line-height: 1.6; pointer-events: none; }
+  #banner { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: rgba(18,50,74,.35); color: #fff; text-align: center; font-size: 18px; line-height: 1.8; cursor: pointer; }
+  #banner .card { background: rgba(18,50,74,.85); padding: 20px 28px; border-radius: 16px; max-width: 420px; margin: 16px; }
+  #banner h1 { margin: 0 0 6px; font-size: 26px; }
+  .hidden { display: none !important; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/dist/lil-gui.esm.min.js"
+} }
+</script>
+</head>
+<body>
+<div id="hud">
+  背上宝宝 <b id="onBack">5</b> / 5 · 救回 <b id="saves">0</b> · 捞回 <b id="catches">0</b><br>
+  已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
+  嘎！<div id="cd"><div id="cdFill"></div></div>
+</div>
+<div id="help">鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板</div>
+<div id="banner"><div class="card">
+  <h1>🦆 Duck Shift</h1>
+  <div id="bannerText">你是鸭妈妈。移动鼠标转移重心，<br>别让背上的宝宝掉进河里！<br>宝宝落水会排到你身后游<br>Shift：嘎！背上的回中间，身后的从尾巴爬上来<br><br><b>点击开始</b></div>
+</div></div>
+
+<script type="module">
+import * as THREE from 'three';
+import GUI from 'lil-gui';
+
+// ---------- 可调参数 ----------
+const DEFAULTS = {
+  maxTilt: 30,           // 鼠标推到边缘时的目标倾角（度）
+  tiltStiffness: 45,     // 倾斜弹簧：越大越跟手
+  tiltDamping: 10,       // 倾斜阻尼：越大越不晃
+  weightInfluence: 0.6,  // 宝宝重量把鸭妈妈压歪的程度（shift your weight）
+  gravity: 3.2,          // 背上的「手感重力」（不是真实 9.8）
+  staticFriction: 0.14,  // 静摩擦：倾角低于此宝宝站得住
+  kineticFriction: 0.08, // 动摩擦：滑起来后的减速
+  domeCurvature: -0.12,  // 背部形状：正 = 隆起往外滑，负 = 凹陷往中间聚
+  wanderStrength: 0.8,   // 宝宝自己乱跑的力度
+  quackPull: 2.6,        // 嘎！把宝宝拉回中心的力度
+  quackStabilize: 0.6,   // 嘎！扑翅时抵消的晃动比例
+  quackCooldown: 2,      // 嘎！冷却（秒）
+  steerByTilt: true,     // 倾斜同时会转向
+  steerStrength: 5,
+  riverSpeed: 3,
+  hazardRate: 0.7,       // 危险出现频率倍率
+  hitStrength: 2.2,      // 漂流物撞击力度
+  slowMoOnFall: true,
+  teeterTime: 0.8,       // 扒边窗口（秒）：这段时间内拉回来就算救回
+  teeterMargin: 0.2,     // 扒边时最多还能往外滑多少（相对背部大小）
+  teeterGrip: 0.5,       // 扒边时抵消外滑力的比例
+  teeterSlowMo: true,    // 有宝宝扒边时短暂慢动作
+  babySwim: 1.4,         // 落水宝宝游去排队的速度
+  climbReach: 1.3,       // 嘎！时离尾巴多近的宝宝能爬上来
+  climbPerQuack: 1,      // 每次嘎！最多爬上来几只
+  lostTime: 12,          // 在水里多久没被接上就跟丢
+  hopImpact: 1.0,        // 宝宝从尾巴爬上背时的冲击（让妈妈抬头，背上的往后滑）
+  scrambleTime: 1.1,     // 爬上来后主动往前挪的时间（䴙䴘宝宝会从尾巴一路挪到脖子边）
+  scrambleStrength: 1.8, // 往前挪的力度
+  cameraMode: 'top',     // top = 3D 俯视；chase = 身后追尾
+  camHeight: 7,          // 俯视：镜头距离
+  camAngle: 22,          // 俯视：偏离垂直的角度（0 = 正上方）
+  showLevel: true,       // 俯视：水平仪
+  cameraFollowRoll: 0.3, // 追尾：镜头跟随倾斜比例（0 = 不跟）
+  showLabels: true,
+  invertY: false,
+};
+let P = { ...DEFAULTS };
+try {
+  const saved = JSON.parse(localStorage.getItem('duckShiftParams_v2') || '{}');
+  Object.assign(P, saved);
+} catch (e) {}
+const saveParams = () => { try { localStorage.setItem('duckShiftParams_v2', JSON.stringify(P)); } catch (e) {} };
+
+// ---------- 基础场景 ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfe9f5);
+scene.fog = new THREE.Fog(0xbfe9f5, 18, 45);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 100);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x5a8f5a, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(4, 10, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+scene.add(sun);
+
+const toon = (color) => new THREE.MeshToonMaterial({ color });
+const RIVER_HALF = 4.2;
+
+// 河面：滚动的波纹贴图
+function rippleTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#4fb3d9'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 3; g.lineCap = 'round';
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * 256, y = Math.random() * 256, w = 10 + Math.random() * 30;
+    g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + w / 2, y - 4, x + w, y); g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 12);
+  return t;
+}
+const riverTex = rippleTexture();
+const river = new THREE.Mesh(new THREE.PlaneGeometry(RIVER_HALF * 2 + 1, 80),
+  new THREE.MeshToonMaterial({ color: 0xffffff, map: riverTex }));
+river.rotation.x = -Math.PI / 2; river.position.z = -25; river.receiveShadow = true;
+scene.add(river);
+
+for (const s of [-1, 1]) {
+  const bank = new THREE.Mesh(new THREE.BoxGeometry(12, 1, 80), toon(0x7cc46a));
+  bank.position.set(s * (RIVER_HALF + 6.5), 0.2, -25); bank.receiveShadow = true;
+  scene.add(bank);
+}
+// 岸边的树与芦苇（循环使用）
+const scenery = [];
+for (let i = 0; i < 40; i++) {
+  const side = i % 2 ? 1 : -1;
+  const g = new THREE.Group();
+  if (Math.random() < 0.5) {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.8), toon(0x8a5a35));
+    const crown = new THREE.Mesh(new THREE.ConeGeometry(0.7, 1.6, 7), toon(0x3f9a4a));
+    trunk.position.y = 0.4; crown.position.y = 1.5; crown.castShadow = true;
+    g.add(trunk, crown);
+  } else {
+    for (let k = 0; k < 4; k++) {
+      const reed = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9 + Math.random() * 0.5), toon(0x5c8f3a));
+      reed.position.set((Math.random() - .5) * .5, 0.5, (Math.random() - .5) * .5);
+      g.add(reed);
+    }
+  }
+  g.position.set(side * (RIVER_HALF + 0.8 + Math.random() * 4), 0.7, -45 + Math.random() * 55);
+  scene.add(g); scenery.push(g);
+}
+
+// ---------- 鸭妈妈 ----------
+const BACK_A = 0.5, BACK_B = 0.72;            // 背部可站立区域（半宽 / 半长）
+const BODY = { rx: 0.75, ry: 0.5, rz: 1.0, cy: 0.2 };
+const backHeight = (x, z) => BODY.cy + BODY.ry * Math.sqrt(Math.max(0, 1 - (x / BODY.rx) ** 2 - (z / BODY.rz) ** 2));
+
+const duck = new THREE.Group();
+scene.add(duck);
+const bodyMesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 20), toon(0xb98a5e));
+bodyMesh.scale.set(BODY.rx, BODY.ry, BODY.rz); bodyMesh.position.y = BODY.cy; bodyMesh.castShadow = true;
+duck.add(bodyMesh);
+const backPatch = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshToonMaterial({ color: 0xd8b48a, transparent: true, opacity: 0.55 }));
+backPatch.scale.set(BACK_A, BACK_B, 1); backPatch.rotation.x = -Math.PI / 2; backPatch.position.y = BODY.cy + BODY.ry + 0.005;
+duck.add(backPatch);
+const head = new THREE.Group(); head.position.set(0, 0.78, -0.92); duck.add(head);
+const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.3, 20, 16), toon(0x7a5a3a)); headMesh.castShadow = true;
+const beak = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.28), toon(0xf29b2e)); beak.position.set(0, -0.05, -0.33);
+head.add(headMesh, beak);
+for (const s of [-1, 1]) {
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 8), toon(0x111111));
+  eye.position.set(s * 0.17, 0.07, -0.22); head.add(eye);
+}
+const tail = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 8), toon(0x8a6440));
+tail.rotation.x = -Math.PI / 2.6; tail.position.set(0, 0.42, 1.0); duck.add(tail);
+const wings = [-1, 1].map(s => {
+  const pivot = new THREE.Group(); pivot.position.set(s * 0.6, 0.45, 0.1);
+  const w = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), toon(0x8f6845));
+  w.scale.set(0.12, 0.3, 0.6); w.position.set(s * 0.06, -0.1, 0); w.castShadow = true;
+  pivot.add(w); duck.add(pivot); pivot.userData.side = s; return pivot;
+});
+const foot = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 0.3), toon(0xf29b2e));
+foot.position.set(0, 0.02, 1.0); foot.visible = false; duck.add(foot);   // 嘎！时伸到身后当台阶（䴙䴘就是这么干的）
+const backGroup = new THREE.Group(); duck.add(backGroup); // 宝宝挂在这里，随鸭妈妈一起倾斜
+const PATCH_SAFE = new THREE.Color(0xd8b48a), PATCH_DANGER = new THREE.Color(0xe8483b);
+
+// 水平仪（俯视时看清倾斜）：实心点 = 实际倾斜，空心圈 = 鼠标目标
+const LEVEL_R = 1.45;
+const level = new THREE.Group(); scene.add(level);
+{
+  const ring = new THREE.Mesh(new THREE.RingGeometry(LEVEL_R - 0.03, LEVEL_R + 0.03, 64),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
+  ring.rotation.x = -Math.PI / 2; level.add(ring);
+  level.userData.actual = new THREE.Mesh(new THREE.CircleGeometry(0.13, 20), new THREE.MeshBasicMaterial({ color: 0xf2a33a }));
+  level.userData.target = new THREE.Mesh(new THREE.RingGeometry(0.1, 0.15, 20), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  for (const m of [level.userData.actual, level.userData.target]) { m.rotation.x = -Math.PI / 2; m.material.depthTest = false; m.renderOrder = 5; level.add(m); }
+  level.userData.target.position.y = 0.01;
+}
+
+// ---------- 宝宝 ----------
+function labelSprite(text) {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 48;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.roundRect(4, 4, 120, 40, 14); g.fill();
+  g.fillStyle = '#12324a'; g.font = 'bold 24px system-ui, "PingFang SC", sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 64, 25);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  s.scale.set(0.42, 0.16, 1); s.renderOrder = 10; return s;
+}
+function makeDuckling(color, scale) {
+  const g = new THREE.Group();
+  const inner = new THREE.Group(); g.add(inner);
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.13, 16, 12), toon(color)); b.scale.set(1, 0.9, 1.15); b.position.y = 0.11; b.castShadow = true;
+  const h = new THREE.Mesh(new THREE.SphereGeometry(0.09, 14, 10), toon(color)); h.position.set(0, 0.25, -0.1); h.castShadow = true;
+  const bk = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.08, 6), toon(0xf29b2e)); bk.rotation.x = -Math.PI / 2; bk.position.set(0, 0.24, -0.21);
+  inner.add(b, h, bk);
+  for (const s of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 6), toon(0x111111)); e.position.set(s * 0.05, 0.28, -0.17); inner.add(e);
+  }
+  inner.scale.setScalar(scale);
+  return g;
+}
+
+const KINDS = [
+  { kind: 'curious', name: '好奇鬼', color: 0xffe066, mass: 1, scale: 1 },
+  { kind: 'sleepy',  name: '瞌睡虫', color: 0xfff1a8, mass: 1, scale: 1 },
+  { kind: 'chubby',  name: '小胖墩', color: 0xffc94a, mass: 2, scale: 1.35 },
+  { kind: 'twin',    name: '双胞A',  color: 0xffd84d, mass: 1, scale: 0.95 },
+  { kind: 'twin',    name: '双胞B',  color: 0xffd84d, mass: 1, scale: 0.95 },
+];
+const START_POS = [[0, 0.3], [-0.2, -0.15], [0, -0.05], [0.22, -0.2], [-0.05, -0.38]];
+let ducklings = [];
+
+function spawnDucklings() {
+  for (const d of ducklings) { d.mesh.removeFromParent(); }
+  ducklings = KINDS.map((k, i) => {
+    const mesh = makeDuckling(k.color, k.scale);
+    const label = labelSprite(k.name); label.position.y = 0.55; mesh.add(label);
+    const zz = labelSprite('Zz'); zz.position.set(0.15, 0.45, 0); zz.visible = false; mesh.add(zz);
+    const help = labelSprite('救我！'); help.position.y = 0.55; help.visible = false; mesh.add(help);
+    backGroup.add(mesh);
+    return { ...k, mesh, label, zz, help, teeter: 0, scramble: 0, x: START_POS[i][0], z: START_POS[i][1], vx: 0, vz: 0,
+      state: 'onBack', timer: 1 + Math.random() * 3, tx: 0, tz: 0, sleeping: false, sleepTimer: 6 + Math.random() * 4,
+      fightTimer: 5 + Math.random() * 4, fighting: false, heading: 0,
+      wp: new THREE.Vector3(), wv: new THREE.Vector3(), spin: new THREE.Vector3(), queueIdx: -1, peepCd: 0 };
+  });
+}
+
+// ---------- 音效（WebAudio 合成，无需素材） ----------
+let actx = null, master = null;
+function ensureAudio() {
+  if (!actx) { actx = new AudioContext(); master = actx.createGain(); master.gain.value = 0.6; master.connect(actx.destination); }
+  if (actx.state === 'suspended') actx.resume();
+}
+function quackSound() {
+  if (!actx) return;
+  const t = actx.currentTime;
+  for (const [delay, f0] of [[0, 480], [0.16, 430]]) {
+    const o = actx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(f0, t + delay); o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + delay + 0.14);
+    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 3;
+    const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t + delay);
+    g.gain.exponentialRampToValueAtTime(0.6, t + delay + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.15);
+    o.connect(f).connect(g).connect(master); o.start(t + delay); o.stop(t + delay + 0.17);
+  }
+}
+function peep(freq, vol = 0.12) {
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.35, t + 0.07);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.1);
+}
+function splashSound() {
+  if (!actx) return;
+  const t = actx.currentTime, len = 0.35, buf = actx.createBuffer(1, actx.sampleRate * len, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2;
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(2500, t); f.frequency.exponentialRampToValueAtTime(300, t + len);
+  const g = actx.createGain(); g.gain.value = 0.5;
+  src.connect(f).connect(g).connect(master); src.start(t);
+}
+function thudSound() {
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'triangle'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.15);
+  g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+  o.connect(g).connect(master); o.start(t); o.stop(t + 0.2);
+}
+
+// ---------- 水花粒子 ----------
+const splashPool = [];
+const dropGeo = new THREE.SphereGeometry(0.05, 6, 4), dropMat = toon(0xffffff);
+for (let i = 0; i < 80; i++) { const m = new THREE.Mesh(dropGeo, dropMat); m.visible = false; scene.add(m); splashPool.push({ m, v: new THREE.Vector3(), life: 0 }); }
+function splash(pos, n = 16, power = 1) {
+  let spawned = 0;
+  for (const p of splashPool) {
+    if (p.life > 0) continue;
+    p.life = 0.6 + Math.random() * 0.4; p.m.visible = true; p.m.position.copy(pos); p.m.position.y = 0.05;
+    const a = Math.random() * Math.PI * 2, r = (0.8 + Math.random() * 1.6) * power;
+    p.v.set(Math.cos(a) * r, (2 + Math.random() * 2.5) * power, Math.sin(a) * r);
+    if (++spawned >= n) break;
+  }
+}
+
+// ---------- 危险：漂流物 / 尾浪 / 老鹰 / 蝴蝶 ----------
+const logs = [];
+function spawnLog() {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 1.3, 8), toon(0x7a4f2c));
+  m.rotation.z = Math.PI / 2; m.castShadow = true; g.add(m);
+  g.rotation.y = (Math.random() - 0.5) * 1.2;
+  g.position.set((Math.random() * 2 - 1) * (RIVER_HALF - 0.8), 0.08, -40);
+  scene.add(g); logs.push({ g, hit: false });
+}
+
+const kayak = new THREE.Group();
+{
+  const hull = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), toon(0xe5533d)); hull.scale.set(0.35, 0.18, 1.8);
+  const pad = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), toon(0x2f6db5)); pad.position.y = 0.3;
+  kayak.add(hull, pad); kayak.visible = false; scene.add(kayak);
+}
+const wake = { active: false, t: 0, side: 1 };
+
+const hawkShadow = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color: 0x0b2233, transparent: true, opacity: 0 }));
+hawkShadow.rotation.x = -Math.PI / 2; hawkShadow.position.y = 0.03; scene.add(hawkShadow);
+const hawk = new THREE.Group();
+{
+  const b = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), toon(0x4a3a2a)); b.scale.set(0.25, 0.18, 0.6);
+  const w = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.04, 0.5), toon(0x5a4632));
+  hawk.add(b, w); hawk.visible = false; scene.add(hawk);
+}
+const hawkState = { active: false, t: 0, x0: 0, x1: 0 };
+
+const butterfly = new THREE.Group();
+const bwings = [-1, 1].map(s => {
+  const w = new THREE.Mesh(new THREE.CircleGeometry(0.08, 10), new THREE.MeshToonMaterial({ color: 0xff7ab6, side: THREE.DoubleSide }));
+  w.position.x = s * 0.07; butterfly.add(w); return w;
+});
+scene.add(butterfly);
+const bfly = { side: 1, timer: 8 };
+
+// ---------- 状态 ----------
+const S = {
+  roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0,
+  dist: 0, quackCd: 0, flap: 0, saves: 0, timeScale: 1, slowMo: 0,
+  logTimer: 2, wakeTimer: 10, hawkTimer: 14, paused: false, started: false, over: false,
+  queue: [], xHistory: [],
+};
+let best = 0; try { best = +localStorage.getItem('duckShiftBest') || 0; } catch (e) {}
+const mouse = { x: 0, y: 0 };
+
+function reset() {
+  Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
+    timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, over: false, queue: [], xHistory: [] });
+  for (const l of logs) l.g.removeFromParent(); logs.length = 0;
+  wake.active = false; kayak.visible = false; hawkState.active = false; hawk.visible = false; hawkShadow.material.opacity = 0;
+  spawnDucklings();
+  hideBanner();
+}
+
+// ---------- 输入 ----------
+addEventListener('pointermove', e => {
+  mouse.x = THREE.MathUtils.clamp((e.clientX / innerWidth) * 2 - 1, -1, 1);
+  mouse.y = THREE.MathUtils.clamp(-((e.clientY / innerHeight) * 2 - 1), -1, 1);
+});
+addEventListener('keydown', e => {
+  if (e.key === 'Shift') quack();
+  else if (e.code === 'KeyR') { reset(); S.started = true; }
+  else if (e.code === 'Space') { S.paused = !S.paused; e.preventDefault(); }
+  else if (e.code === 'KeyH') gui._hidden ? gui.show() : gui.hide();
+});
+const banner = document.getElementById('banner'), bannerText = document.getElementById('bannerText');
+banner.addEventListener('click', () => { ensureAudio(); if (S.over) reset(); S.started = true; hideBanner(); });
+function hideBanner() { banner.classList.add('hidden'); }
+function showBanner(html) { bannerText.innerHTML = html; banner.classList.remove('hidden'); }
+
+function quack() {
+  if (!S.started || S.over || S.quackCd > 0) return;
+  ensureAudio(); quackSound();
+  S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
+  // 身后排队的宝宝：离尾巴够近的从后面爬上来
+  const tailX = S.x, tailZ = S.z + BODY.rz;
+  let picked = 0;
+  for (const d of train()) {
+    if (picked >= P.climbPerQuack) break;
+    if (Math.hypot(d.wp.x - tailX, d.wp.z - tailZ) <= P.climbReach) { startHop(d); picked++; }
+  }
+  S.rollV *= (1 - P.quackStabilize); S.pitchV *= (1 - P.quackStabilize);
+  for (const d of ducklings) {
+    if (d.state !== 'onBack') continue;
+    const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
+    d.vx += -d.x / BACK_A * P.quackPull * (0.4 + r);
+    d.vz += -d.z / BACK_B * P.quackPull * (0.4 + r);
+    d.sleeping = false; d.sleepTimer = 6 + Math.random() * 4; d.fighting = false;
+  }
+}
+
+// ---------- 模拟 ----------
+const rand = (a, b) => a + Math.random() * (b - a);
+const tmpV = new THREE.Vector3();
+
+function updateDucklingOnBack(d, dt) {
+  const G = P.gravity;
+  // 重力沿背面的分量：右侧低 → 往右滑；鸭头低 → 往前滑；背部隆起 → 往外滑
+  let ax = G * Math.sin(S.roll) + G * P.domeCurvature * d.x / BACK_A;
+  let az = G * Math.sin(S.pitch) + G * P.domeCurvature * d.z / BACK_B;
+
+  // 性格行为
+  let walk = 0.6 * P.wanderStrength, fric = 1;
+  d.timer -= dt;
+  if (d.scramble > 0) {
+    // 刚从尾巴爬上来：拼命往背中间挪；胖墩挪得慢但劲大（力按体重补足）
+    d.scramble -= dt;
+    d.tx = 0; d.tz = BACK_B * 0.15;
+    walk = P.scrambleStrength * (d.mass > 1 ? 1.15 : 1);
+    if (d.z > 0) d.scramble = 0;
+  } else if (d.kind === 'curious') {
+    // 追着蝴蝶跑到背的边缘
+    if (d.timer <= 0) { d.timer = rand(1, 2.5); d.tx = bfly.side * BACK_A * 0.8; d.tz = rand(-0.4, 0.4) * BACK_B; }
+    walk *= 1.2;
+  } else if (d.kind === 'sleepy') {
+    d.sleepTimer -= dt;
+    if (!d.sleeping && d.sleepTimer <= 0) { d.sleeping = true; d.sleepTimer = rand(4, 7); }
+    else if (d.sleeping && d.sleepTimer <= 0) { d.sleeping = false; d.sleepTimer = rand(6, 10); }
+    if (d.sleeping) { walk = 0; fric = 0.35; } // 睡着了：不动，但很容易滑
+    else if (d.timer <= 0) { d.timer = rand(2, 4); d.tx = rand(-0.4, 0.4) * BACK_A; d.tz = rand(-0.5, 0.5) * BACK_B; }
+  } else if (d.kind === 'chubby') {
+    walk *= 0.5;
+    if (d.timer <= 0) { d.timer = rand(2.5, 5); d.tx = rand(-0.8, 0.8) * BACK_A; d.tz = rand(-0.8, 0.8) * BACK_B; }
+  } else if (d.kind === 'twin') {
+    const other = ducklings.find(o => o !== d && o.kind === 'twin' && o.state === 'onBack');
+    d.fightTimer -= dt;
+    if (other && !d.fighting && d.fightTimer <= 0) { d.fighting = other.fighting = true; d.fightTimer = other.fightTimer = rand(6, 10); }
+    if (d.fighting && other) { d.tx = other.x; d.tz = other.z; walk *= 1.6; }
+    else if (d.timer <= 0) { d.timer = rand(1.5, 3); d.tx = rand(-0.6, 0.6) * BACK_A; d.tz = rand(-0.6, 0.6) * BACK_B; }
+  }
+  if (walk > 0) {
+    const dx = d.tx - d.x, dz = d.tz - d.z, l = Math.hypot(dx, dz);
+    if (l > 0.03) { ax += dx / l * walk; az += dz / l * walk; }
+  }
+  // 老鹰：逃离阴影
+  if (hawkState.active && hawkState.t > 1.2) {
+    const lx = d.x - (hawkShadow.position.x - S.x), lz = d.z + (hawkShadow.position.z - S.z);
+    const l = Math.hypot(lx, lz) || 1;
+    if (l < 2.2) { ax += lx / l * 2.2; az += lz / l * 2.2; }
+  }
+
+  // 扒边：抓住羽毛边缘，外滑力打折、往外的速度被吃掉
+  const nx0 = d.x / (BACK_A * BACK_A), nz0 = d.z / (BACK_B * BACK_B), nl = Math.hypot(nx0, nz0) || 1;
+  const nx = nx0 / nl, nz = nz0 / nl;
+  if (d.teeter > 0) {
+    const an = ax * nx + az * nz;
+    if (an > 0) { ax -= nx * an * P.teeterGrip; az -= nz * an * P.teeterGrip; }
+    const vn = d.vx * nx + d.vz * nz;
+    if (vn > 0) { const k = Math.min(1, 12 * dt); d.vx -= nx * vn * k; d.vz -= nz * vn * k; }
+  }
+  // 摩擦：静摩擦先粘住，滑起来再用动摩擦
+  const speed = Math.hypot(d.vx, d.vz), accel = Math.hypot(ax, az);
+  if (d.teeter === 0 && speed < 0.03 && accel < P.staticFriction * G * fric * (d.mass > 1 ? 1.2 : 1)) { d.vx = d.vz = 0; return; }
+  d.vx += ax * dt; d.vz += az * dt;
+  const sp = Math.hypot(d.vx, d.vz);
+  if (sp > 0) {
+    const dec = Math.min(sp, P.kineticFriction * G * fric * dt);
+    d.vx -= d.vx / sp * dec; d.vz -= d.vz / sp * dec;
+  }
+  const maxSp = 2.2; const sp2 = Math.hypot(d.vx, d.vz);
+  if (sp2 > maxSp) { d.vx *= maxSp / sp2; d.vz *= maxSp / sp2; }
+  d.x += d.vx * dt; d.z += d.vz * dt;
+}
+
+function collideDucklings() {
+  const on = ducklings.filter(d => d.state === 'onBack');
+  for (let i = 0; i < on.length; i++) for (let j = i + 1; j < on.length; j++) {
+    const a = on[i], b = on[j];
+    const minD = 0.13 * (a.scale + b.scale);
+    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
+    if (d > 0 && d < minD) {
+      const nx = dx / d, nz = dz / d, push = (minD - d), ma = a.mass, mb = b.mass;
+      a.x -= nx * push * mb / (ma + mb); a.z -= nz * push * mb / (ma + mb);
+      b.x += nx * push * ma / (ma + mb); b.z += nz * push * ma / (ma + mb);
+      const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
+      let imp = rel < 0 ? -rel * 1.2 : 0;
+      if (a.kind === 'twin' && b.kind === 'twin' && a.fighting) { imp += 1.4; a.fighting = b.fighting = false; peep(2600, 0.15); }
+      a.vx -= nx * imp * mb / (ma + mb); a.vz -= nz * imp * mb / (ma + mb);
+      b.vx += nx * imp * ma / (ma + mb); b.vz += nz * imp * ma / (ma + mb);
+    }
+  }
+}
+
+function fall(d) {
+  d.state = 'falling';
+  d.mesh.getWorldPosition(d.wp);
+  scene.attach(d.mesh);
+  const out = new THREE.Vector3(d.x, 0, -d.z).normalize();
+  d.wv.set(out.x * 1.5 + d.vx * 0.8 + S.vx, 2.4, out.z * 1.5 - d.vz * 0.8);
+  d.spin.set(rand(-12, 12), rand(-8, 8), rand(-12, 12));
+  d.zz.visible = false;
+  peep(3200, 0.2);
+  if (P.slowMoOnFall) S.slowMo = 0.7;
+}
+
+const train = () => ducklings.filter(d => d.state === 'floating').sort((a, b) => a.fellAt - b.fellAt);
+
+function startHop(d) {
+  d.state = 'hopping'; d.hopT = 0; d.hopFrom = d.wp.clone();
+  d.x = THREE.MathUtils.clamp((d.wp.x - S.x) * 0.3, -0.15, 0.15); d.z = -BACK_B * 0.55;   // 从尾巴爬上来，落在背的后部
+  S.catches++; peep(2000, 0.18); splash(d.wp, 8, 0.5);
+}
+
+function step(dt) {
+  // 鸭妈妈倾斜：弹簧追鼠标 + 宝宝重量力矩 + 外力
+  const targetRoll = THREE.MathUtils.degToRad(P.maxTilt) * mouse.x;
+  const targetPitch = THREE.MathUtils.degToRad(P.maxTilt) * mouse.y * (P.invertY ? -1 : 1);
+  let wRoll = 0, wPitch = 0;
+  for (const d of ducklings) if (d.state === 'onBack') { wRoll += d.mass * d.x / BACK_A; wPitch += d.mass * d.z / BACK_B; }
+  let distRoll = 0;
+  if (wake.active) distRoll = Math.sin(wake.t * 7.5) * 3.2 * Math.max(0, 1 - wake.t / 3.5) * wake.side;
+  S.rollV += (P.tiltStiffness * (targetRoll - S.roll) - P.tiltDamping * S.rollV + P.weightInfluence * wRoll + distRoll) * dt;
+  S.pitchV += (P.tiltStiffness * (targetPitch - S.pitch) - P.tiltDamping * S.pitchV + P.weightInfluence * wPitch * 0.8) * dt;
+  S.roll += S.rollV * dt; S.pitch += S.pitchV * dt;
+  const lim = THREE.MathUtils.degToRad(50);
+  S.roll = THREE.MathUtils.clamp(S.roll, -lim, lim); S.pitch = THREE.MathUtils.clamp(S.pitch, -lim, lim);
+
+  // 倾斜转向 + 河岸反弹
+  if (P.steerByTilt) S.vx += Math.sin(S.roll) * P.steerStrength * dt;
+  S.vx *= Math.exp(-1.8 * dt); S.x += S.vx * dt;
+  if (Math.abs(S.x) > RIVER_HALF - 0.8) {
+    S.x = Math.sign(S.x) * (RIVER_HALF - 0.8); S.rollV += -Math.sign(S.x) * P.hitStrength; S.vx *= -0.4; thudSound();
+  }
+
+  // 宝宝
+  for (const d of ducklings) {
+    if (d.state === 'onBack') {
+      updateDucklingOnBack(d, dt);
+      const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
+      if (r > 1) {
+        if (d.teeter === 0) peep(3000, 0.22);           // 开始扒边：尖叫
+        d.teeter += dt;
+        if (r > 1 + P.teeterMargin || d.teeter > P.teeterTime) { d.teeter = 0; fall(d); }
+      } else if (d.teeter > 0) {
+        d.teeter = 0; S.saves++; peep(1300, 0.18);     // 救回来了
+      }
+    } else if (d.state === 'falling') {
+      d.wv.y -= 9.8 * dt; d.wp.addScaledVector(d.wv, dt);
+      d.mesh.rotation.x += d.spin.x * dt; d.mesh.rotation.y += d.spin.y * dt; d.mesh.rotation.z += d.spin.z * dt;
+      if (d.wp.y <= 0.02) {
+        d.wp.y = 0.02; d.state = 'floating'; d.floatT = 0; d.fellAt = performance.now();
+        splash(d.wp, 18); splashSound();
+      }
+    } else if (d.state === 'floating') {
+      // 在水里：游到妈妈身后排成一串（秋沙鸭宝宝贴着妈妈的尾流游）
+      d.floatT += dt;
+      const slot = train().indexOf(d);
+      const delay = Math.min(S.xHistory.length - 1, (slot + 1) * 14);
+      const tx = S.xHistory.length ? S.xHistory[S.xHistory.length - 1 - delay] : S.x;
+      const tz = S.z + BODY.rz + 0.3 + slot * 0.42;
+      const dx = tx - d.wp.x, dz = tz - d.wp.z, l = Math.hypot(dx, dz);
+      const stepLen = Math.min(l, P.babySwim * dt * (l > 1 ? 1 : 0.6 + l * 0.4));
+      if (l > 0.001) { d.wp.x += dx / l * stepLen; d.wp.z += dz / l * stepLen; }
+      d.mesh.rotation.x *= 0.9; d.mesh.rotation.z *= 0.9;
+      d.mesh.rotation.y += (0 - d.mesh.rotation.y) * Math.min(1, 4 * dt);   // 和妈妈一样朝上游
+      if (d.floatT > P.lostTime) { d.state = 'queued'; d.queueIdx = S.queue.length; S.queue.push(d); peep(900, 0.12); }
+    } else if (d.state === 'hopping') {
+      d.hopT += dt / 0.35; const k = Math.min(1, d.hopT);
+      const target = backGroup.localToWorld(tmpV.set(d.x, backHeight(d.x, d.z), -d.z));
+      d.wp.lerpVectors(d.hopFrom, target, k); d.wp.y += Math.sin(k * Math.PI) * 0.8;
+      d.mesh.rotation.x = -k * Math.PI * 2;
+      if (k >= 1) {
+        d.state = 'onBack'; backGroup.add(d.mesh); d.mesh.rotation.set(0, 0, 0);
+        d.vx = -d.x * 0.6; d.vz = -d.z * 0.6; d.teeter = 0; d.scramble = P.scrambleTime;
+        // 落背冲击：从哪边跳上来，妈妈就往哪边一沉
+        S.rollV += d.mass * d.x / BACK_A * P.hopImpact; S.pitchV += d.mass * d.z / BACK_B * P.hopImpact * 0.8;
+        thudSound(); peep(1500, 0.18);
+      }
+    } else if (d.state === 'queued') {
+      // 落水后排到鸭妈妈身后，跟着游（绿头鸭式）
+      const delay = Math.min(S.xHistory.length - 1, (d.queueIdx + 1) * 18);
+      const tx = S.xHistory.length ? S.xHistory[S.xHistory.length - 1 - delay] : S.x;
+      const tz = S.z + BODY.rz + 0.6 + train().length * 0.42 + d.queueIdx * 0.5;
+      d.wp.x += (tx - d.wp.x) * Math.min(1, 3 * dt); d.wp.z += (tz - d.wp.z) * Math.min(1, 2 * dt);
+      d.mesh.rotation.x *= 0.9; d.mesh.rotation.z *= 0.9;
+      d.mesh.rotation.y += (0 - d.mesh.rotation.y) * Math.min(1, 4 * dt);
+    }
+  }
+  collideDucklings();
+}
+
+function updateWorld(dt) {
+  S.dist += P.riverSpeed * dt;
+  riverTex.offset.y += P.riverSpeed * dt / (80 / 12);
+  S.xHistory.push(S.x); if (S.xHistory.length > 400) S.xHistory.shift();
+  for (const g of scenery) { g.position.z += P.riverSpeed * dt; if (g.position.z > 10) g.position.z -= 55; }
+
+  // 漂流物
+  S.logTimer -= dt * P.hazardRate;
+  if (S.logTimer <= 0) { spawnLog(); S.logTimer = rand(2.2, 4.5); }
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const l = logs[i]; l.g.position.z += P.riverSpeed * dt * 1.15;
+    l.g.position.y = 0.08 + Math.sin(performance.now() / 300 + i) * 0.02;
+    const dx = S.x - l.g.position.x, dz = l.g.position.z - S.z;
+    if (!l.hit && Math.abs(dz) < 0.9 && Math.abs(dx) < 1.1) {
+      l.hit = true; thudSound();
+      S.rollV += Math.sign(dx || 1) * P.hitStrength; S.pitchV -= P.hitStrength * 0.8; S.vx += Math.sign(dx || 1) * 1.2;
+      splash(new THREE.Vector3(l.g.position.x, 0, l.g.position.z), 8, 0.6);
+    }
+    if (l.hit) l.g.position.x -= Math.sign(dx || 1) * dt * 1.5;
+    if (l.g.position.z > 12) { l.g.removeFromParent(); logs.splice(i, 1); }
+  }
+
+  // 皮划艇尾浪
+  S.wakeTimer -= dt * P.hazardRate;
+  if (!wake.active && S.wakeTimer <= 0) { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
+  if (wake.active) {
+    wake.t += dt;
+    kayak.position.set(S.x + wake.side * 2.6, 0.1, -14 + wake.t * 6);
+    if (wake.t > 4) { wake.active = false; kayak.visible = false; S.wakeTimer = rand(12, 18); }
+  }
+
+  // 老鹰：先投阴影预警，再扫过
+  S.hawkTimer -= dt * P.hazardRate;
+  if (!hawkState.active && S.hawkTimer <= 0) {
+    hawkState.active = true; hawkState.t = 0; const s = Math.random() < 0.5 ? -1 : 1;
+    hawkState.x0 = S.x + s * 3; hawkState.x1 = S.x - s * 3;
+  }
+  if (hawkState.active) {
+    hawkState.t += dt; const t = hawkState.t;
+    const k = THREE.MathUtils.clamp((t - 1.2) / 1.8, 0, 1);
+    const hx = THREE.MathUtils.lerp(hawkState.x0, hawkState.x1, k);
+    hawkShadow.position.set(hx, 0.03, S.z - 0.1);
+    const grow = Math.min(1, t / 1.2);
+    hawkShadow.scale.setScalar(0.4 + grow * 0.9); hawkShadow.material.opacity = 0.35 * grow * (t > 3 ? Math.max(0, 1 - (t - 3) / 0.5) : 1);
+    hawk.visible = t > 1.2 && t < 3.2; hawk.position.set(hx, 3 + Math.sin(t * 4) * 0.1, S.z - 0.1);
+    hawk.children[1].rotation.z = Math.sin(t * 10) * 0.3;
+    if (t > 3.5) { hawkState.active = false; hawk.visible = false; hawkShadow.material.opacity = 0; S.hawkTimer = rand(14, 22); }
+  }
+
+  // 蝴蝶（好奇鬼的目标）
+  bfly.timer -= dt; if (bfly.timer <= 0) { bfly.side *= -1; bfly.timer = rand(6, 10); }
+  const bt = performance.now() / 1000;
+  butterfly.position.lerp(tmpV.set(S.x + bfly.side * 1.1, 1.0 + Math.sin(bt * 2) * 0.15, S.z - 0.1 + Math.sin(bt * 1.3) * 0.3), Math.min(1, dt * 1.5));
+  bwings[0].rotation.y = Math.sin(bt * 25) * 1.1; bwings[1].rotation.y = -bwings[0].rotation.y;
+
+  // 水花
+  for (const p of splashPool) {
+    if (p.life <= 0) continue;
+    p.life -= dt; p.v.y -= 9.8 * dt; p.m.position.addScaledVector(p.v, dt);
+    p.m.scale.setScalar(Math.max(0.01, p.life));
+    if (p.life <= 0 || p.m.position.y < -0.1) { p.life = 0; p.m.visible = false; }
+  }
+}
+
+// ---------- 渲染同步 ----------
+function syncVisuals(realDt, simDt) {
+  const t = performance.now() / 1000;
+  const sinkK = S.sink > 0 ? Math.sin(Math.min(1, S.sink / 0.6) * Math.PI) : 0;
+  duck.position.set(S.x, Math.sin(t * 2.2) * 0.025 - sinkK * 0.14, S.z);
+  foot.visible = sinkK > 0.05; foot.position.z = 1.0 + sinkK * 0.35;
+  duck.rotation.set(-S.pitch, 0, -S.roll, 'ZXY');
+  head.rotation.x = S.flap > 0 ? -Math.sin(S.flap * 20) * 0.3 : 0;
+  for (const w of wings) w.rotation.z = w.userData.side * (S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05);
+
+  for (const d of ducklings) {
+    d.label.visible = P.showLabels && d.state === 'onBack';
+    if (d.state === 'onBack') {
+      d.mesh.position.set(d.x, backHeight(d.x, d.z), -d.z);
+      const sp = Math.hypot(d.vx, d.vz);
+      if (sp > 0.05) d.heading = Math.atan2(-d.vx, d.vz);
+      d.mesh.rotation.set(0, d.heading, 0);
+      d.mesh.children[0].position.y = sp > 0.05 && !d.sleeping ? Math.abs(Math.sin(t * 18 + d.x * 10)) * 0.03 : 0;
+      d.zz.visible = d.sleeping && d.teeter === 0;
+      d.help.visible = d.teeter > 0;
+      if (d.teeter > 0) { d.label.visible = false; d.mesh.children[0].rotation.z = Math.sin(t * 45) * 0.45; d.mesh.children[0].position.y = Math.abs(Math.sin(t * 30)) * 0.05; }
+      else d.mesh.children[0].rotation.z = 0;
+      // 越靠近边缘越慌：啾声更高更急
+      const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
+      d.peepCd -= simDt;
+      if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; }
+    } else {
+      d.mesh.position.copy(d.wp);
+      d.help.visible = d.state === 'floating';
+      if (d.state === 'floating') {
+        const prog = Math.min(1, d.floatT / P.lostTime);   // 越久越累，扑腾越急
+        d.mesh.position.y = 0.02 + Math.abs(Math.sin(t * (9 + prog * 12) + d.x * 7)) * (0.06 + prog * 0.08);   // 扑腾，越接近爬上来越用力
+        d.mesh.children[0].rotation.z = Math.sin(t * 20 + d.z * 5) * 0.35;
+      } else if (d.state === 'queued') {
+        d.mesh.position.y = 0.02 + Math.sin(t * 4 + d.queueIdx) * 0.02;
+        d.mesh.children[0].rotation.z = 0;
+      }
+    }
+  }
+
+  // 背部警示色：宝宝越靠边越红
+  let maxR = 0;
+  for (const d of ducklings) if (d.state === 'onBack') maxR = Math.max(maxR, Math.hypot(d.x / BACK_A, d.z / BACK_B));
+  backPatch.material.color.copy(PATCH_SAFE).lerp(PATCH_DANGER, THREE.MathUtils.clamp((maxR - 0.6) / 0.35, 0, 1));
+  backPatch.material.opacity = 0.55 + THREE.MathUtils.clamp((maxR - 0.6) / 0.35, 0, 1) * 0.35;
+
+  // 水平仪
+  const top = P.cameraMode === 'top';
+  level.visible = top && P.showLevel;
+  if (level.visible) {
+    const maxRad = THREE.MathUtils.degToRad(P.maxTilt);
+    level.position.set(S.x, 0.03, S.z);
+    level.userData.actual.position.set(THREE.MathUtils.clamp(S.roll / maxRad, -1.3, 1.3) * LEVEL_R, 0, -THREE.MathUtils.clamp(S.pitch / maxRad, -1.3, 1.3) * LEVEL_R);
+    level.userData.target.position.set(mouse.x * LEVEL_R, 0.01, -mouse.y * (P.invertY ? -1 : 1) * LEVEL_R);
+  }
+
+  // 镜头
+  if (top) {
+    const a = THREE.MathUtils.degToRad(P.camAngle);
+    camera.position.set(S.x * 0.8, P.camHeight * Math.cos(a), S.z * 0.6 + P.camHeight * Math.sin(a));
+    camera.lookAt(S.x * 0.8, 0, S.z * 0.6);
+  } else {
+    camera.position.set(S.x * 0.7, 3.4, S.z + 5.2);
+    camera.lookAt(S.x * 0.85, 0.6, S.z - 0.8);
+    camera.rotateZ(-S.roll * P.cameraFollowRoll);
+  }
+
+  // HUD
+  const onBack = ducklings.filter(d => d.state === 'onBack').length;
+  document.getElementById('onBack').textContent = onBack;
+  document.getElementById('saves').textContent = S.saves;
+  document.getElementById('catches').textContent = S.catches;
+  document.getElementById('dist').textContent = Math.floor(S.dist);
+  document.getElementById('best').textContent = Math.floor(best);
+  document.getElementById('cdFill').style.width = (100 * (1 - S.quackCd / P.quackCooldown)) + '%';
+
+  if (!S.over && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued')) {
+    S.over = true;
+    if (S.dist > best) { best = S.dist; try { localStorage.setItem('duckShiftBest', String(best)); } catch (e) {} }
+    showBanner(`<b>全军落水！</b><br>这次漂了 ${Math.floor(S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥<br><br>点击或按 R 重来`);
+  }
+}
+
+// ---------- 主循环（固定步长） ----------
+const STEP = 1 / 120;
+let acc = 0, last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const realDt = Math.min(0.05, (now - last) / 1000); last = now;
+  let simDt = 0;
+  if (S.started && !S.paused && !S.over) {
+    const teetering = P.teeterSlowMo && ducklings.some(d => d.state === 'onBack' && d.teeter > 0);
+    if (S.slowMo > 0) { S.slowMo -= realDt; S.timeScale = 0.3; }
+    else S.timeScale += ((teetering ? 0.5 : 1) - S.timeScale) * Math.min(1, realDt * 8);
+    simDt = realDt * S.timeScale;
+    acc += simDt;
+    while (acc >= STEP) { step(STEP); acc -= STEP; }
+    updateWorld(simDt);
+    S.quackCd = Math.max(0, S.quackCd - simDt);
+    S.flap = Math.max(0, S.flap - simDt);
+    S.sink = Math.max(0, S.sink - simDt);
+  }
+  syncVisuals(realDt, simDt);
+  renderer.render(scene, camera);
+}
+
+// ---------- 调参面板 ----------
+const gui = new GUI({ title: '手感调参（H 隐藏）' });
+const onCh = () => saveParams();
+const f1 = gui.addFolder('鸭妈妈倾斜');
+f1.add(P, 'maxTilt', 5, 45, 1).name('最大倾角°').onChange(onCh);
+f1.add(P, 'tiltStiffness', 5, 80, 1).name('跟手度（弹簧）').onChange(onCh);
+f1.add(P, 'tiltDamping', 0.5, 20, 0.5).name('阻尼（不晃）').onChange(onCh);
+f1.add(P, 'weightInfluence', 0, 5, 0.1).name('宝宝压歪妈妈').onChange(onCh);
+f1.add(P, 'invertY').name('前后反转').onChange(onCh);
+const f2 = gui.addFolder('宝宝物理');
+f2.add(P, 'gravity', 0.5, 9.8, 0.1).name('手感重力').onChange(onCh);
+f2.add(P, 'staticFriction', 0, 0.6, 0.01).name('静摩擦').onChange(onCh);
+f2.add(P, 'kineticFriction', 0, 0.6, 0.01).name('动摩擦').onChange(onCh);
+f2.add(P, 'domeCurvature', -1, 1.5, 0.05).name('背部形状（负=凹）').onChange(onCh);
+const f2b = gui.addFolder('扒边救援');
+f2b.add(P, 'teeterTime', 0, 2, 0.05).name('救援窗口秒').onChange(onCh);
+f2b.add(P, 'teeterMargin', 0, 0.6, 0.02).name('扒边余量').onChange(onCh);
+f2b.add(P, 'teeterGrip', 0, 1, 0.05).name('扒边抓力').onChange(onCh);
+f2b.add(P, 'teeterSlowMo').name('扒边慢动作').onChange(onCh);
+f2.add(P, 'wanderStrength', 0, 3, 0.1).name('乱跑力度').onChange(onCh);
+f2.add(P, 'showLabels').name('显示性格标签').onChange(onCh);
+const f6 = gui.addFolder('落水与爬回（嘎！接人）');
+f6.add(P, 'babySwim', 0.2, 4, 0.1).name('宝宝游去排队速度').onChange(onCh);
+f6.add(P, 'climbReach', 0.3, 4, 0.1).name('尾巴接人范围').onChange(onCh);
+f6.add(P, 'climbPerQuack', 1, 5, 1).name('每次嘎！接几只').onChange(onCh);
+f6.add(P, 'lostTime', 3, 30, 0.5).name('多久跟丢秒').onChange(onCh);
+f6.add(P, 'hopImpact', 0, 5, 0.1).name('爬上冲击').onChange(onCh);
+f6.add(P, 'scrambleTime', 0, 3, 0.1).name('爬上后往前挪秒').onChange(onCh);
+f6.add(P, 'scrambleStrength', 0, 5, 0.1).name('往前挪力度').onChange(onCh);
+const f3 = gui.addFolder('嘎！（Shift）');
+f3.add(P, 'quackPull', 0, 5, 0.1).name('召集力度').onChange(onCh);
+f3.add(P, 'quackStabilize', 0, 1, 0.05).name('扑翅稳住').onChange(onCh);
+f3.add(P, 'quackCooldown', 0, 10, 0.5).name('冷却秒').onChange(onCh);
+const f4 = gui.addFolder('河流与危险');
+f4.add(P, 'riverSpeed', 0, 10, 0.5).name('水流速度').onChange(onCh);
+f4.add(P, 'hazardRate', 0, 3, 0.1).name('危险频率').onChange(onCh);
+f4.add(P, 'hitStrength', 0, 6, 0.1).name('撞击力度').onChange(onCh);
+f4.add(P, 'steerByTilt').name('倾斜=转向').onChange(onCh);
+f4.add(P, 'steerStrength', 0, 15, 0.5).name('转向力度').onChange(onCh);
+const f5 = gui.addFolder('镜头与特效');
+f5.add(P, 'cameraMode', { '3D 俯视': 'top', '身后追尾': 'chase' }).name('视角').onChange(onCh);
+f5.add(P, 'camHeight', 4, 18, 0.5).name('俯视：镜头距离').onChange(onCh);
+f5.add(P, 'camAngle', 0, 60, 1).name('俯视：倾斜角°').onChange(onCh);
+f5.add(P, 'showLevel').name('俯视：水平仪').onChange(onCh);
+f5.add(P, 'cameraFollowRoll', -1, 1, 0.05).name('追尾：镜头跟随倾斜').onChange(onCh);
+f5.add(P, 'slowMoOnFall').name('落水慢动作').onChange(onCh);
+gui.add({ copy() {
+  const txt = JSON.stringify(P, null, 2);
+  console.log(txt);
+  navigator.clipboard?.writeText(txt).then(() => alertless('参数已复制到剪贴板'), () => alertless('复制失败，参数已打印到控制台'));
+} }, 'copy').name('📋 复制当前参数');
+gui.add({ reset() { Object.assign(P, DEFAULTS); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); } }, 'reset').name('↺ 恢复默认参数');
+gui.add({ restart() { reset(); S.started = true; } }, 'restart').name('🔄 重来（R）');
+function alertless(msg) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  Object.assign(el.style, { position: 'fixed', left: '50%', top: '20px', transform: 'translateX(-50%)', background: '#12324a', color: '#fff', padding: '8px 14px', borderRadius: '10px', zIndex: 99 });
+  document.body.appendChild(el); setTimeout(() => el.remove(), 1600);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+spawnDucklings();
+window.__duck = { S, P, get ducklings() { return ducklings; }, quack, fall };   // 调试用
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
