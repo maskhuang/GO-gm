@@ -594,6 +594,93 @@ export function buildHawk(toon) {
   return g;
 }
 
+// 苍鹭：站在岸边浅水里一动不动，脖子一缩一弹叼走靠近的雏鸭（灰蓝身子、黑眉羽、黄色匕首嘴）
+// userData.setNeck(len, pitch)：len = 脖子长度倍数（缩 0.55 / 平时 1 / 出击 ~2），pitch = 前倾角（0 竖直，正 = 往前探）
+export function buildHeron(toon) {
+  const g = new THREE.Group();
+  const grey = toon(0x9fb1c2), dark = toon(0x55657a), white = toon(0xf4f1ea), yellow = toon(0xf2b632), black = toon(0x1d2430);
+  for (const s of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.015, 0.62, 5), toon(0xc9a24a));
+    leg.position.set(s * 0.06, 0.25, 0.02); g.add(leg);
+  }
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), grey); body.scale.set(0.17, 0.17, 0.32);
+  body.position.set(0, 0.62, 0.04); body.rotation.x = -0.35; g.add(body);
+  const wing = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), dark); wing.scale.set(0.18, 0.12, 0.28);
+  wing.position.set(0, 0.68, 0.1); wing.rotation.x = -0.4; g.add(wing);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 6), dark); tail.rotation.x = Math.PI / 2 + 0.5; tail.position.set(0, 0.56, 0.36); g.add(tail);
+  const neck = new THREE.Group(); neck.position.set(0, 0.74, -0.14); g.add(neck);
+  const neckM = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.055, 1, 8), white); neck.add(neckM);
+  const head = new THREE.Group(); neck.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), white); skull.scale.set(1, 0.9, 1.15); head.add(skull);
+  const brow = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.025, 0.05), black); brow.position.set(0, 0.04, 0.0); head.add(brow);
+  const plume = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.22, 5), black); plume.rotation.x = -Math.PI / 2 - 0.35; plume.position.set(0, 0.03, 0.15); head.add(plume);
+  const bill = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.3, 6), yellow); bill.rotation.x = -Math.PI / 2; bill.position.set(0, -0.01, -0.21); head.add(bill);
+  for (const s of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), black); eye.position.set(s * 0.06, 0.015, -0.035); head.add(eye);
+  }
+  const L0 = 0.36;
+  g.userData.setNeck = (len, pitch) => {
+    const L = L0 * len;
+    neck.rotation.x = -pitch;
+    neckM.scale.y = L; neckM.position.y = L / 2;
+    head.position.y = L; head.rotation.x = pitch * 0.85 - 0.1;   // 头保持接近水平：盯着猎物
+  };
+  g.userData.setNeck(1, 0.15);
+  g.userData.head = head;
+  return g;
+}
+
+// 海鸥：白身灰翅、黑翼尖、黄嘴带红点；从侧面低飞掠过水面
+export function buildGull(toon) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), toon(0xfafaf7)); body.scale.set(0.15, 0.13, 0.4);
+  const headM = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), toon(0xfafaf7)); headM.position.set(0, 0.06, -0.4);
+  const beak = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.14, 6), toon(0xf2c23a)); beak.rotation.x = -Math.PI / 2; beak.position.set(0, 0.04, -0.56);
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 6), toon(0xe8483b)); dot.position.set(0, 0.02, -0.58);
+  const ws = new THREE.Shape([[0, 0.12], [0.6, 0.1], [1.15, 0.0], [1.0, -0.08], [0.55, -0.14], [0, -0.14]].map(([x, y]) => new THREE.Vector2(x, y)));
+  const tip = new THREE.Shape([[0.85, 0.05], [1.15, 0.0], [1.0, -0.08], [0.8, -0.1]].map(([x, y]) => new THREE.Vector2(x, y)));
+  const wGeo = new THREE.ShapeGeometry(ws), tGeo = new THREE.ShapeGeometry(tip);
+  const wings = [-1, 1].map(s => {
+    const pivot = new THREE.Group(); pivot.position.x = s * 0.1;
+    for (const [geo, col, y] of [[wGeo, 0xb9c3cc, 0], [tGeo, 0x1d2430, 0.004]]) {
+      const w = new THREE.Mesh(geo, toon(col)); w.material.side = THREE.DoubleSide;
+      w.rotation.x = -Math.PI / 2; w.position.y = y; w.scale.x = s; pivot.add(w);
+    }
+    pivot.userData.side = s; g.add(pivot); return pivot;
+  });
+  g.add(body, headM, beak, dot);
+  g.userData.wings = wings;
+  g.scale.setScalar(0.55);
+  return g;
+}
+
+// 雨：一团斜着落的短线，跟着镜头走；k = 雨量 0..1
+export function createRain(scene, n = 700) {
+  const pos = new Float32Array(n * 6), drops = [];
+  for (let i = 0; i < n; i++) drops.push({ x: rand(-7, 7), y: rand(0, 9), z: rand(-11, 6), v: rand(11, 15) });
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xe8f2fa, transparent: true, opacity: 0, depthWrite: false });
+  const lines = new THREE.LineSegments(geo, mat); lines.frustumCulled = false; lines.renderOrder = 8; lines.visible = false;
+  scene.add(lines);
+  return {
+    update(dt, k, cx, cz) {
+      lines.visible = k > 0.01; mat.opacity = 0.5 * k;
+      if (!lines.visible) return;
+      lines.position.set(cx, 0, cz);
+      const shown = Math.floor(n * k);
+      for (let i = 0; i < n; i++) {
+        const d = drops[i];
+        d.y -= d.v * dt; d.x -= d.v * 0.12 * dt;
+        if (d.y < 0) { d.y += 9; d.x = rand(-7, 7); d.z = rand(-11, 6); }
+        const o = i * 6, on = i < shown ? 1 : 0;
+        pos[o] = d.x; pos[o + 1] = d.y * on; pos[o + 2] = d.z;
+        pos[o + 3] = d.x + 0.05; pos[o + 4] = (d.y + 0.38) * on; pos[o + 5] = d.z;
+      }
+      geo.attributes.position.needsUpdate = true;
+    },
+  };
+}
+
 // ---------- 特效：水圈 / 尾迹 / 嘎！气泡 / 星星 ----------
 function popTexture(kind) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 160;

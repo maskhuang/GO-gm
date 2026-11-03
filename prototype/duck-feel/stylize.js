@@ -135,7 +135,7 @@ export function createStylize(renderer, scene, camera) {
       const bg = scene.background, auto = renderer.shadowMap.autoUpdate, cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
       // 透明物体和贴图精灵（水圈、声波、星星、阴影投影…）不进深度，否则会被描出一圈方框
       hidden.length = 0;
-      scene.traverseVisible(o => { if (o.isSprite || (o.isMesh && (Array.isArray(o.material) ? false : o.material.transparent))) hidden.push(o); });
+      scene.traverseVisible(o => { if (o.isSprite || o.isLine || o.isPoints || (o.isMesh && (Array.isArray(o.material) ? false : o.material.transparent))) hidden.push(o); });
       for (const o of hidden) o.visible = false;
       scene.background = null; scene.overrideMaterial = depthMat; renderer.shadowMap.autoUpdate = false;
       renderer.setClearColor(black, 1); renderer.setRenderTarget(depthRT); renderer.clear(); renderer.render(scene, camera);

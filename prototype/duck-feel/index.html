@@ -73,8 +73,8 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=5';
-import { createStylize, POST_MODES } from './stylize.js?v=3';
+import * as ART from './art.js?v=6';
+import { createStylize, POST_MODES } from './stylize.js?v=4';
 const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
 // ---------- 可调参数 ----------
@@ -137,6 +137,12 @@ const DEFAULTS = {
   dropKick: 4.5,         // 落差：往前栽的力度（落水后反弹约 3/4）
   dropSlide: 1.0,        // 落差：背上宝宝往前扑的惯性
   hawkWarn: 1.0,         // 俯冲预警（秒）：这段时间里嘎！就能护住
+  rainDry: 0.45,         // 下雨：背上多靠中间（妈妈翅膀底下）还淋不到（相对背部大小）
+  rainChill: 0.12,       // 下雨：淋在外圈每秒掉多少体温
+  heronReach: 1.5,       // 苍鹭：站在岸边能叼到多远
+  heronWarn: 0.9,        // 苍鹭：缩脖子到出击的预警（秒）
+  gullWarn: 0.75,        // 海鸥：开始俯冲到抓的时间（秒）
+  gullDodge: 0.35,       // 海鸥：抓的那一刻目标偏离瞄准点多远就扑空
   coverTime: 1.0,        // 嘎！后护崽持续多久：背上的缩成团、水里的潜下去
   artStyle: 'A',         // 美术风格：orig 原版 / A 扁平 / B 绘本 / C 低模
   cameraMode: 'top',     // top = 3D 俯视；chase = 身后追尾
@@ -433,6 +439,39 @@ function whooshSound() {
   const g = actx.createGain(); g.gain.value = 0.45;
   src.connect(f).connect(g).connect(master); src.start(t);
 }
+function gullSound() {   // 海鸥：「嘎——呜」两声往下滑的尖叫
+  if (!actx) return;
+  const t = actx.currentTime;
+  for (const [t0, f0] of [[0, 1500], [0.2, 1350]]) {
+    const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 3;
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t + t0); o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + t0 + 0.18);
+    g.gain.setValueAtTime(0.0001, t + t0); g.gain.exponentialRampToValueAtTime(0.2, t + t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + t0 + 0.2);
+    o.connect(f).connect(g).connect(master); o.start(t + t0); o.stop(t + t0 + 0.22);
+  }
+}
+function croakSound() {   // 苍鹭：低沉的一声「呱」
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
+  f.type = 'lowpass'; f.frequency.value = 700;
+  o.type = 'square'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(95, t + 0.25);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o.connect(f).connect(g).connect(master); o.start(t); o.stop(t + 0.3);
+}
+let rainLoop = null;   // 雨声：高频的循环噪声
+function rainGain(v) {
+  if (!actx) return;
+  if (!rainLoop) {
+    const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800;
+    const g = actx.createGain(); g.gain.value = 0;
+    src.connect(f).connect(g).connect(master); src.start();
+    rainLoop = g;
+  }
+  rainLoop.gain.setTargetAtTime(v * 0.16, actx.currentTime, 0.3);
+}
 let rumble = null;   // 急流的轰鸣：循环噪声，音量随离落差的距离变
 function rumbleGain(v) {
   if (!actx) return;
@@ -494,6 +533,14 @@ const hawk = ART.buildHawk(toon); hawk.visible = false; scene.add(hawk);
 const hawkState = { phase: 'idle', t: 0, side: 1, ang: 0, target: null, from: new THREE.Vector3(), pos: new THREE.Vector3(), heading: 0 };
 const hawkRing = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 24), new THREE.MeshBasicMaterial({ color: 0xe8483b, transparent: true, opacity: 0.85, depthWrite: false }));
 hawkRing.rotation.x = -Math.PI / 2; hawkRing.visible = false; hawkRing.renderOrder = 6; scene.add(hawkRing);
+const HERON_S = 1.5;   // 苍鹭比鸭子高得多：放大点，俯视也一眼认得出
+const heron = ART.buildHeron(toon); heron.scale.setScalar(HERON_S); heron.visible = false; scene.add(heron);
+const heronShadow = ART.contactShadow(); heronShadow.scale.set(1.3, 1.3, 1); heronShadow.visible = false; scene.add(heronShadow);
+const gull = ART.buildGull(toon); gull.visible = false; scene.add(gull);
+const gullShadow = new THREE.Mesh(ART.hawkShadowGeo(), new THREE.MeshBasicMaterial({ color: 0x0b2233, transparent: true, opacity: 0 }));
+gullShadow.rotation.x = -Math.PI / 2; gullShadow.position.y = 0.03; scene.add(gullShadow);
+const rain = ART.createRain(scene);
+const RAINY = { bg: new THREE.Color(0x9fb3bd), sky: new THREE.Color(0xb3c2cb) };
 
 const butterfly = new THREE.Group();
 const bwings = [-1, 1].map(s => {
@@ -704,6 +751,9 @@ function reset() {
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
   wake.active = false; kayak.visible = false; hawkState.phase = 'idle'; hawkState.target = null; hawk.visible = false; hawkRing.visible = false; hawkShadow.material.opacity = 0; S.cover = 0;
+  Object.assign(RN, { on: false, k: 0 }); rainGain(0);
+  Object.assign(HR, { phase: 'idle', target: null }); heron.visible = heronShadow.visible = false;
+  Object.assign(GL, { phase: 'idle', target: null }); gull.visible = false; gullShadow.material.opacity = 0;
   spawnDucklings();
   hideBanner();
 }
@@ -795,8 +845,10 @@ function updateDucklingOnBack(d, dt) {
     if (d.fighting && other) { d.tx = other.x; d.tz = other.z; walk *= 1.6; }
     else if (d.timer <= 0) { d.timer = rand(1.5, 3); d.tx = rand(-0.6, 0.6) * BACK_A; d.tz = rand(-0.6, 0.6) * BACK_B; }
   }
+  if (d.warmth < 0.25) fric *= 0.45 + 2.2 * d.warmth;   // 冻僵了：抓不住羽毛，很容易滑
   if (walk > 0) {
-    const dx = d.tx - d.x, dz = d.tz - d.z, l = Math.hypot(dx, dz);
+    const hk = d.scramble > 0 ? 0 : 0.8 * RN.k;   // 下雨：都想往妈妈翅膀底下（背中间）挤
+    const dx = d.tx * (1 - hk) - d.x, dz = d.tz * (1 - hk) - d.z, l = Math.hypot(dx, dz);
     if (l > 0.03) { ax += dx / l * walk; az += dz / l * walk; }
   }
   // 老鹰：盘旋/俯冲时宝宝本能地躲影子（会把自己挤到边上）；嘎！护住时缩成团不乱跑
@@ -918,7 +970,9 @@ function step(dt) {
     if (d.state === 'onBack') {
       updateDucklingOnBack(d, dt);
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
-      d.warmth = Math.min(1, d.warmth + dt * P.warmRate * (1.3 - 0.7 * Math.min(1, r)));   // 背上回暖，越靠中间（羽毛底下）越快
+      // 背上回暖，越靠中间（羽毛底下）越快；下雨时外圈淋湿反而掉体温（雏鸭的绒毛还不防水，只有妈妈翅膀底下是干的）
+      const wetK = RN.k * THREE.MathUtils.smoothstep(r, P.rainDry - 0.1, P.rainDry + 0.15);
+      d.warmth = THREE.MathUtils.clamp(d.warmth + dt * (P.warmRate * (1.3 - 0.7 * Math.min(1, r)) * (1 - wetK) - P.rainChill * wetK / (1 + 1.2 * growth())), 0, 1);
       // 长大了的宝宝：暖和、平静时会自己跳下水游一会儿（妈妈渐渐从「驮着」变成「领着」）
       if (growth() >= 0.5 && d.teeter === 0 && d.warmth > 0.85 && !S.arrived && !bigActive() && Math.random() < dt * 0.03 * growth()) { jumpOff(d); continue; }
       if (r > 1) {
@@ -940,7 +994,7 @@ function step(dt) {
     } else if (d.state === 'floating') {
       // 在水里：游到妈妈身后排成一串（秋沙鸭宝宝贴着妈妈的尾流游）
       d.floatT += dt;
-      d.warmth = Math.max(0, d.warmth - dt / freezeT());   // 水里失温（会累积：没暖透又掉下来冷得更快；越大越耐冷）
+      d.warmth = Math.max(0, d.warmth - dt * (1 + 0.6 * RN.k) / freezeT());   // 水里失温（下雨更快）（会累积：没暖透又掉下来冷得更快；越大越耐冷）
       const slot = train().indexOf(d);
       const delay = Math.min(S.xHistory.length - 1, (slot + 1) * 14);
       const tx = S.xHistory.length ? S.xHistory[S.xHistory.length - 1 - delay] : S.x;
@@ -1044,6 +1098,9 @@ function updateWorld(dt) {
   }
 
   updateHawk(dt);
+  updateHeron(dt, flow);
+  updateGull(dt);
+  updateRain(dt);
 
   updateLurker(dt);
 
@@ -1051,6 +1108,7 @@ function updateWorld(dt) {
   bfly.timer -= dt; if (bfly.timer <= 0) { bfly.side *= -1; bfly.timer = rand(6, 10); }
   const bt = performance.now() / 1000;
   butterfly.position.lerp(tmpV.set(S.x + bfly.side * 1.1, 1.0 + Math.sin(bt * 2) * 0.15, S.z - 0.1 + Math.sin(bt * 1.3) * 0.3), Math.min(1, dt * 1.5));
+  butterfly.visible = RN.k < 0.3;   // 下雨蝴蝶就躲起来了
   bwings[0].rotation.y = Math.sin(bt * 25) * 1.1; bwings[1].rotation.y = -bwings[0].rotation.y;
 
   // 水花
@@ -1067,12 +1125,12 @@ function updateWorld(dt) {
 const DAYS = [
   { age: 1, g: 0, len: 0.75, unlock: [{ at: 18, ev: 'kayak' }, { at: 32, ev: 'orphan' }, { at: 55, ev: 'lurker' }],
     intro: '宝宝们才 1 天大，又小又怕冷，全靠你驮着。' },
-  { age: 3, g: 0.33, len: 0.9, unlock: [{ at: 24, ev: 'rapids' }],
-    intro: '宝宝们 3 天大了，游得快了一点，也没那么怕冷了。<br>今天这段河有急流和落差。' },
-  { age: 7, g: 0.66, len: 1.05, unlock: [{ at: 24, ev: 'hawk' }],
-    intro: '宝宝们 7 天大了，已经会潜水：鹰扑下来时，水里的会自己躲。<br>可它们也更重了，背上越来越挤，有的还想自己下水游。' },
-  { age: 12, g: 1, len: 1.2, unlock: [],
-    intro: '宝宝们 12 天大了，大半时间自己游，你更像是在领着它们走。<br>最后一段：去下游的大湖。' },
+  { age: 3, g: 0.33, len: 0.9, unlock: [{ at: 24, ev: 'rapids' }, { at: 62, ev: 'rain' }],
+    intro: '宝宝们 3 天大了，游得快了一点，也没那么怕冷了。<br>今天这段河有急流和落差，天也阴了，可能要下雨。' },
+  { age: 7, g: 0.66, len: 1.05, unlock: [{ at: 24, ev: 'hawk' }, { at: 58, ev: 'heron' }],
+    intro: '宝宝们 7 天大了，已经会潜水：鹰扑下来时，水里的会自己躲。<br>可它们也更重了，背上越来越挤，有的还想自己下水游。<br>这段河岸边的浅水里站着苍鹭。' },
+  { age: 12, g: 1, len: 1.2, unlock: [{ at: 16, ev: 'gull' }],
+    intro: '宝宝们 12 天大了，大半时间自己游，你更像是在领着它们走。<br>最后一段：去下游的大湖，湖边有海鸥。' },
 ];
 const C = { day: 0, roster: [], startRoster: [], nextRoster: null, pending: null };   // roster：家里有哪些宝宝（跨天保留）
 const curDay = () => DAYS[Math.min(C.day, DAYS.length - 1)];
@@ -1092,13 +1150,16 @@ function proceed() {   // 结算画面点一下：下一天 / 重来这一天 / 
 // ---------- 节奏编排（导演） ----------
 // 热身只有木头 → 按顺序逐个登场（第一次出现给一句怎么应对）→ 之后随机调度：
 // 大威胁（水下阴影/急流/鹰）同时只来一个、结束后有喘息；小事件（皮划艇/迷路宝宝）只在平静时来；间隔随时间缩短
-const BIG = ['lurker', 'rapids', 'hawk'], SMALL = ['kayak', 'orphan'];
+const BIG = ['lurker', 'rapids', 'hawk', 'rain', 'heron'], SMALL = ['kayak', 'orphan', 'gull'];
 const HINT = {
   kayak: '皮划艇过来了：它的尾浪会把你晃一下，稳住重心',
   orphan: '有只迷路的宝宝！游到它旁边，它就会跟上来，再嘎！接它上背',
   lurker: '水下有黑影！它只咬水里的宝宝：冒泡前嘎！把宝宝捞上来，或者拐开甩掉它',
   rapids: '前方急流，尽头有落差！躲开礁石，过落差前把宝宝都弄上背',
   hawk: '鹰来了！它俯冲（出现红圈）时嘎！——背上的宝宝缩起来，水里的潜下去',
+  rain: '下雨了！只有背中间（妈妈翅膀底下）是干的，外圈的宝宝会越淋越冷',
+  heron: '岸边站着苍鹭！别贴着那边的岸游——它缩脖子就是要叼了',
+  gull: '海鸥从侧面扑下来了！往另一边歪一下让宝宝滑开，或者嘎！让它们缩起来',
 };
 const DIR = { t: 0, unlocked: [], nextBig: 0, nextSmall: 0, wasBig: false, lastBig: '', logMul: 1.6 };
 function resetDirector() {   // 每天开始：已经登场过的威胁保留（跨天），今天的新威胁按当天的时间表登场
@@ -1107,7 +1168,7 @@ function resetDirector() {   // 每天开始：已经登场过的威胁保留（
   Object.assign(DIR, { t: 0, nextBig: hasBig ? 20 : 0, nextSmall: hasSmall ? 14 : 0, wasBig: false, lastBig: '', logMul: 1.6 });
 }
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
-const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on;
+const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on || RN.on || HR.phase !== 'idle';
 function triggerEvent(ev, first) {
   const hintMsg = first ? HINT[ev] : null, ms = 4200;
   if (ev === 'kayak') { spawnKayak(); if (hintMsg) hint(hintMsg, ms); }
@@ -1115,6 +1176,9 @@ function triggerEvent(ev, first) {
   else if (ev === 'lurker') { if (!P.lurkerOn) return; spawnLurker(); if (hintMsg) hint(hintMsg, ms); }
   else if (ev === 'rapids') hintMsg ? startRapids(hintMsg, ms) : startRapids();
   else if (ev === 'hawk') { spawnHawk(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'rain') { startRain(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'heron') { spawnHeron(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'gull') { if (spawnGull() && hintMsg) hint(hintMsg, ms); }
 }
 function updateDirector(dt) {
   if (!P.director || dayLen() - S.dist < 70) return;   // 最后 70 米不再出新威胁
@@ -1166,6 +1230,9 @@ function arrive() {
   if (L.phase !== 'idle') { L.phase = 'leave'; L.timer = 1; }
   if (['approach', 'circle', 'dive'].includes(hawkState.phase)) { hawkState.phase = 'leave'; hawkState.t = 0; hawkState.target = null; }
   endRapids(); wake.active = false; kayak.visible = false;
+  RN.on = false;
+  if (HR.phase === 'cock') { HR.phase = 'recover'; HR.t = 0; HR.target = null; }
+  if (GL.phase === 'call' || GL.phase === 'swoop') { GL.phase = 'leave'; GL.t = 0; GL.target = null; }
   quackSound(); S.flap = 0.5;
   const fam = ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state));
   fam.forEach((d, i) => { d.homeDelay = 0.8 + i * 0.35; d.homeIdx = i; d.homeN = fam.length; });
@@ -1375,6 +1442,161 @@ function updateHawk(dt) {
   for (const w of hawk.userData.wings) w.rotation.z = w.userData.side * flap;
 }
 
+// ---------- 下雨：一阵 20～30 秒的阵雨 ----------
+// 依据：雏鸭头两周靠妈妈保暖，绒毛没有妈妈的油脂不防水；冷雨是第一周雏鸭死亡的头号原因，母鸭会张开翅膀把它们捂在身下
+const RN = { on: false, t: 0, dur: 0, k: 0, drip: 0 };
+function startRain() { Object.assign(RN, { on: true, t: 0, dur: rand(24, 32) }); }
+function updateRain(dt) {
+  RN.t += dt;
+  if (RN.on && RN.t > RN.dur) RN.on = false;
+  RN.k = THREE.MathUtils.clamp(RN.k + (RN.on ? 1 : -1) * dt / 3, 0, 1);   // 雨慢慢下大、慢慢停
+  rainGain(RN.k);
+  if (RN.k <= 0.05) return;
+  RN.drip -= dt;
+  while (RN.drip < 0) {   // 雨点打在水面上的小圈
+    RN.drip += 0.025 / RN.k;
+    fx.ring(rand(-RIVER_HALF + 0.3, RIVER_HALF - 0.3), S.z + rand(-9, 5), { r0: 0.02, r1: 0.16, life: 0.45, opacity: 0.4 * RN.k });
+  }
+}
+
+// ---------- 苍鹭：站在岸边浅水里（跟着河岸漂过来），离岸太近的宝宝会被叼走 ----------
+// 依据：苍鹭在浅水岸边伏击，雏鸭是常见猎物；它出击前会把脖子缩成 S 形。应对：离那边的岸远一点
+const HR = { phase: 'idle', x: 0, z: 0, side: 1, t: 0, target: null, cd: 0, yaw: 0, len: 1, pitch: 0.15, tp: new THREE.Vector3(), splash: 0 };
+const preyPos = (d, out) => (d.state === 'onBack' || d.state === 'hopping') ? d.mesh.getWorldPosition(out) : out.copy(d.wp);
+const PREY = ['onBack', 'floating', 'queued', 'hopping'];
+function spawnHeron() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  Object.assign(HR, { phase: 'stand', side, x: side * (RIVER_HALF - 0.3), z: S.z - 15, t: 0, target: null, cd: 0, yaw: Math.atan2(side, 0.3), len: 1, pitch: 0.15 });
+  heron.visible = heronShadow.visible = true;
+}
+function heronAim(p) {   // 把脖子伸向 p：返回 [长度倍数, 前倾角, 朝向]
+  const dx = p.x - HR.x, dz = p.z - HR.z, hd = Math.hypot(dx, dz) / HERON_S, dv = (0.74 * HERON_S - 0.06 - p.y) / HERON_S;   // 换算到模型自己的尺寸
+  return [THREE.MathUtils.clamp((Math.hypot(Math.max(0, hd - 0.14), dv) - 0.28) / 0.36, 0.6, 3.6), Math.atan2(Math.max(0, hd - 0.14), dv), Math.atan2(-dx, -dz)];
+}
+function updateHeron(dt, flow) {
+  if (HR.phase === 'idle') return;
+  HR.z += flow * dt; HR.t += dt; HR.cd -= dt;
+  const ease = (a, b, k) => a + (b - a) * Math.min(1, k * dt);
+  const turn = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * Math.min(1, k * dt);
+  const pp = new THREE.Vector3();
+  if (HR.phase === 'stand') {
+    // 站着一动不动，偶尔歪头盯水面
+    HR.len = ease(HR.len, 1, 4); HR.pitch = ease(HR.pitch, 0.15 + 0.08 * Math.sin(HR.t * 0.9), 3);
+    HR.yaw = turn(HR.yaw, Math.atan2(HR.side, 0.3 + 0.3 * Math.sin(HR.t * 0.5)), 2);
+    if (HR.cd <= 0 && !S.arrived) {
+      let best = null, bd = P.heronReach;
+      for (const d of ducklings) {
+        if (!PREY.includes(d.state)) continue;
+        preyPos(d, pp); const dd = Math.hypot(pp.x - HR.x, pp.z - HR.z);
+        if (dd < bd) { bd = dd; best = d; }
+      }
+      if (best) { HR.phase = 'cock'; HR.t = 0; HR.target = best; croakSound(); }
+    }
+    if (HR.z > S.z + 9) { HR.phase = 'idle'; heron.visible = heronShadow.visible = false; return; }
+  } else if (HR.phase === 'cock') {   // 缩脖子、身子往后坐：马上要叼
+    const d = HR.target;
+    if (!PREY.includes(d.state)) { HR.phase = 'recover'; HR.t = 0; HR.target = null; }
+    else {
+      preyPos(d, pp);
+      HR.len = ease(HR.len, 0.55, 8); HR.pitch = ease(HR.pitch, -0.3, 8);
+      HR.yaw = turn(HR.yaw, Math.atan2(-(pp.x - HR.x), -(pp.z - HR.z)), 10);
+      if (HR.t >= P.heronWarn) { HR.phase = 'strike'; HR.t = 0; HR.tp.copy(pp); }
+    }
+  } else if (HR.phase === 'strike') {   // 一弹：脖子伸向它最后看到的位置
+    const [len, pitch, yaw] = heronAim(HR.tp), k = Math.min(1, HR.t / 0.13);
+    HR.len = 0.55 + (len - 0.55) * k; HR.pitch = -0.3 + (pitch + 0.3) * k; HR.yaw = yaw;
+    if (k >= 1) {
+      const d = HR.target;
+      const ok = PREY.includes(d.state) && preyPos(d, pp).distanceTo(HR.tp) < 0.3;   // 在出击前一刻溜开 = 扑空
+      const shielded = S.cover > 0 && (d.state === 'onBack' || d.state === 'hopping');   // 背上的缩在妈妈翅膀底下
+      splash(new THREE.Vector3(HR.tp.x, 0, HR.tp.z), 10, 0.6);
+      if (ok && !shielded) {
+        if (d.state === 'onBack' || d.state === 'hopping') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
+        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25); splashSound();
+        if (P.slowMoOnFall) S.slowMo = 0.5;
+        HR.phase = 'eat';
+      } else { whooshSound(); HR.phase = 'recover'; HR.target = null; }
+      HR.t = 0;
+    }
+  } else if (HR.phase === 'eat') {   // 叼着抬起头、仰脖子吞下去
+    HR.len = ease(HR.len, 1.1, 6); HR.pitch = ease(HR.pitch, -0.45, 4);
+    if (HR.target) heron.userData.head.localToWorld(HR.target.wp.set(0, 0, -0.3));
+    if (HR.t > 1.0) { if (HR.target) { HR.target.state = 'eaten'; HR.target.mesh.visible = false; HR.target.wp.y = -1; } HR.target = null; HR.phase = 'recover'; HR.t = 0; }
+  } else if (HR.phase === 'recover') {
+    HR.len = ease(HR.len, 1, 5); HR.pitch = ease(HR.pitch, 0.15, 5);
+    if (HR.t > 0.6) { HR.phase = 'stand'; HR.cd = 2.2; HR.t = 0; }
+  }
+  heron.position.set(HR.x, -0.06, HR.z); heron.rotation.y = HR.yaw;
+  heron.userData.setNeck(HR.len, HR.pitch);
+  heronShadow.position.set(HR.x, 0.02, HR.z);
+  HR.splash -= dt; if (HR.splash <= 0) { HR.splash = 1.4; fx.ring(HR.x, HR.z, { r0: 0.1, r1: 0.45, life: 1.2, opacity: 0.35 }); }   // 脚边的小水圈
+}
+
+// ---------- 海鸥：从侧面低飞掠过，抓最靠那边的宝宝；预警短，但瞄的是一个点 ----------
+// 依据：海鸥会从低空掠过水面抓雏鸭，常在开阔的大水面边。应对：往另一边歪，让目标滑离瞄准点；或者嘎！缩起来
+const GL = { phase: 'idle', t: 0, side: 1, target: null, ax: 0, az: 0, from: new THREE.Vector3(), pos: new THREE.Vector3(), heading: 0, h: 3 };
+const gullRel = (d, out) => d.state === 'onBack' ? out.set(d.x, 0, d.z) : out.set(d.wp.x - S.x, 0, d.wp.z - S.z);   // 背上用背部坐标，水里用相对妈妈的位置
+function spawnGull() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  let best = null, bs = -Infinity;
+  for (const d of ducklings) {
+    let sc = -Infinity;
+    if (d.state === 'floating' || d.state === 'queued') sc = growth() >= 0.66 ? 0.2 : 2 + d.wp.x * side * 0.2;
+    else if (d.state === 'onBack') sc = d.x * side / BACK_A + 0.5;
+    if (sc > bs) { bs = sc; best = d; }
+  }
+  if (!best) return false;
+  Object.assign(GL, { phase: 'call', t: 0, side, target: best, h: 2.8 });
+  GL.from.set(S.x + side * 7, 0, S.z - 1.5); GL.pos.copy(GL.from);
+  gull.visible = true; gullSound();
+  return true;
+}
+function updateGull(dt) {
+  if (GL.phase === 'idle') return;
+  GL.t += dt;
+  const prev = tmpV.copy(GL.pos), d = GL.target, rel = new THREE.Vector3();
+  let shadowO = 0.2, shadowS = 0.45, flap = Math.sin(GL.t * 16) * 0.5;
+  const aimWorld = (out) => d && d.state === 'onBack' ? backGroup.localToWorld(out.set(GL.ax, backHeight(GL.ax, GL.az), -GL.az)) : out.set(S.x + GL.ax, 0, S.z + GL.az);
+  if (GL.phase === 'call') {   // 叫着从侧面滑进来，还高
+    const k = Math.min(1, GL.t / 0.5);
+    GL.pos.lerpVectors(GL.from, new THREE.Vector3(S.x + GL.side * 3.6, 0, S.z - 0.6), k);
+    GL.h = 2.8 - 0.6 * k; shadowO = 0.1 + 0.15 * k; flap *= 0.4;
+    if (!d || !PREY.includes(d.state) || d.state === 'hopping') { GL.phase = 'leave'; GL.t = 0; GL.target = null; }
+    else if (k >= 1) { gullRel(d, rel); GL.ax = rel.x; GL.az = rel.z; GL.phase = 'swoop'; GL.t = 0; GL.from.copy(GL.pos); }   // 锁定瞄准点
+  } else if (GL.phase === 'swoop') {   // 收翅俯冲向瞄准点：影子越来越黑
+    if (d.state !== 'onBack' && PREY.includes(d.state)) { gullRel(d, rel); GL.ax = rel.x; GL.az = rel.z; }   // 水里的：盯着追（只有背上的能靠滑开躲）
+    const k = Math.min(1, GL.t / P.gullWarn), tp = aimWorld(new THREE.Vector3());
+    GL.pos.lerpVectors(GL.from, tp, k * k);
+    GL.h = 2.2 * (1 - k * k) + 0.25; shadowO = 0.25 + 0.35 * k; shadowS = 0.45 - 0.1 * k; flap = -0.3;
+    if (k >= 1) {
+      const can = PREY.includes(d.state) && d.state !== 'hopping';
+      const miss = !can || gullRel(d, rel).distanceTo(new THREE.Vector3(GL.ax, 0, GL.az)) > P.gullDodge;
+      const selfDive = growth() >= 0.66 && (d.state === 'floating' || d.state === 'queued');
+      if (!miss && !(S.cover > 0) && !selfDive) {
+        if (d.state === 'onBack') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
+        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25); gullSound(); splash(tp, 8, 0.5);
+        if (P.slowMoOnFall) S.slowMo = 0.5;
+        GL.phase = 'carry';
+      } else { whooshSound(); fx.ring(tp.x, tp.z, { r0: 0.15, r1: 1.0, life: 0.5, opacity: 0.5, drift: 0 }); GL.phase = 'leave'; GL.target = null; }
+      GL.t = 0; GL.from.copy(GL.pos);
+    }
+  } else {   // carry / leave：顺势从另一侧飞走
+    GL.pos.x -= GL.side * 5 * dt; GL.pos.z -= 1.2 * dt;
+    GL.h = 0.25 + GL.t * 2.2; shadowO = 0.5 * Math.max(0, 1 - GL.t / 1.0); flap = Math.sin(GL.t * 18) * 0.6;
+    if (GL.phase === 'carry' && GL.target) {
+      GL.target.wp.set(GL.pos.x, GL.h - 0.2, GL.pos.z);
+      if (GL.t > 1.2) { GL.target.state = 'eaten'; GL.target.mesh.visible = false; GL.target.wp.y = -1; }
+    }
+    if (GL.t > 1.3) { GL.phase = 'idle'; gull.visible = false; gullShadow.material.opacity = 0; GL.target = null; return; }
+  }
+  const dx = GL.pos.x - prev.x, dz = GL.pos.z - prev.z;
+  if (Math.hypot(dx, dz) > 1e-4) GL.heading = Math.atan2(-dx, -dz);
+  gullShadow.position.set(GL.pos.x, 0.03, GL.pos.z); gullShadow.rotation.z = GL.heading;
+  gullShadow.scale.setScalar(shadowS); gullShadow.material.opacity = shadowO;
+  gull.position.set(GL.pos.x, GL.h, GL.pos.z); gull.rotation.y = GL.heading;
+  for (const w of gull.userData.wings) w.rotation.z = w.userData.side * flap;
+}
+
 // 水下阴影：出现 → 追水里最近的宝宝（没有就从妈妈身下穿过顶一下）→ 冒泡预警 → 咬
 function updateLurker(dt) {
   for (const p of ripplePool) {
@@ -1458,7 +1680,7 @@ function syncVisuals(realDt, simDt) {
   const q = S.flap > 0 ? Math.sin(Math.min(1, (0.5 - S.flap) / 0.12) * Math.PI / 2) * Math.min(1, S.flap / 0.15) : 0;
   // 回头看宝宝：有宝宝扒边/落水就扭头盯着它（鸟脖子能转 180°），平时也隔一阵回头瞄一眼——这样玩家才看得到她的脸
   let look = null;
-  const threatened = hawkState.phase === 'dive' ? hawkState.target : L.phase === 'windup' ? L.target : null;   // 鹰/水下黑影盯上的宝宝：妈妈先盯着它
+  const threatened = hawkState.phase === 'dive' ? hawkState.target : L.phase === 'windup' ? L.target : HR.phase === 'cock' ? HR.target : GL.phase === 'swoop' ? GL.target : null;   // 鹰/水下黑影盯上的宝宝：妈妈先盯着它
   if (threatened) look = threatened.state === 'onBack' ? threatened.mesh.position : duck.worldToLocal(tmpV.copy(threatened.wp));
   if (!look) for (const d of ducklings) {
     if (d.state === 'onBack' && d.teeter > 0) { look = d.mesh.position; break; }
@@ -1489,7 +1711,7 @@ function syncVisuals(realDt, simDt) {
   M.tail.rotation.y = Math.sin(t * 2.6) * 0.12 + S.rollV * 0.03;
   M.crest.rotation.x = Math.sin(t * 3.1) * 0.06 * (1 - cdK) - q * 0.2 + cdK * 0.7;   // 冷却中往后贴着脑袋
   for (const w of wings) w.rotation.z = w.userData.side * (S.flap > 0.25 ? Math.abs(Math.sin(S.flap * 25)) * 1.1
-    : S.cover > 0 ? 0.6 + Math.sin(t * 30) * 0.04 : S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05);   // 护崽时半张翅膀
+    : S.cover > 0 ? 0.6 + Math.sin(t * 30) * 0.04 : S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05 + 0.3 * RN.k);   // 下雨：微微张开翅膀把宝宝捂住   // 护崽时半张翅膀
 
   for (const d of ducklings) {
     d.mouth = (d.mouth || 0) - realDt * 5; d.land = (d.land || 0) - realDt * 4;
@@ -1524,7 +1746,7 @@ function syncVisuals(realDt, simDt) {
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), moving: sp > 0.05 && !d.sleeping, sleeping: d.sleeping, panic: d.teeter > 0 || r > 0.85,
         peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0, cold: 1 - d.warmth,
-        lookUp: hawkState.phase === 'dive' && hawkState.target === d });
+        lookUp: (hawkState.phase === 'dive' && hawkState.target === d) || (GL.phase === 'swoop' && GL.target === d) || (HR.phase === 'cock' && HR.target === d) });
       if (d.warmth < 0.5 && simDt > 0 && Math.random() < simDt * 0.5) { coldPeep(1900, 0.04); d.mouth = 1; }   // 背上还冷着：小声打颤
       d.peepCd -= simDt;
       if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
@@ -1553,7 +1775,7 @@ function syncVisuals(realDt, simDt) {
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued' || d.state === 'stray',
         panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried' || d.state === 'stray' || (L.phase === 'windup' && L.target === d),
         peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi, cold: 1 - d.warmth,
-        lookUp: hawkState.phase === 'dive' && hawkState.target === d });
+        lookUp: (hawkState.phase === 'dive' && hawkState.target === d) || (GL.phase === 'swoop' && GL.target === d) || (HR.phase === 'cock' && HR.target === d) });
       // 求救的叫声：落水的宝宝隔一会儿叫一声；越冷叫得越慢、越低、越虚、带颤音
       if (d.state === 'floating' && !(S.cover > 0) && simDt > 0) {
         d.callT = (d.callT ?? Math.random()) - simDt;
@@ -1587,7 +1809,13 @@ function syncVisuals(realDt, simDt) {
     sun.color.set(curStyle.sun[0]).lerp(SUNSET.sun, f); sun.intensity = curStyle.sun[1] * (1 - 0.15 * f);
     hemi.color.set(curStyle.hemi[0]).lerp(SUNSET.sky, f);
     sun.position.set(4 + f * 5, 10 - f * 5.5, 3 - f * 1.5);
+    if (RN.k > 0) {   // 阴雨：天灰下来、光变弱
+      scene.background.lerp(RAINY.bg, 0.65 * RN.k); scene.fog.color.copy(scene.background);
+      sun.intensity *= 1 - 0.45 * RN.k; hemi.color.lerp(RAINY.sky, 0.5 * RN.k);
+    }
+    hemi.intensity = curStyle.hemi[2] * (1 - 0.22 * RN.k);
   }
+  rain.update(realDt, RN.k, S.x, S.z);
   waterA.uniforms.uFocus.value.set(S.x, S.z);
   waterA.uniforms.uRapA.value = RP.uA; waterA.uniforms.uRapB.value = RP.uB; waterA.uniforms.uRapOn.value = RP.on ? 1 : 0; waterA.uniforms.uFocusAmt.value = P.focus ? 1 : 0;
   contact.position.set(S.x, 0.015, S.z + 0.05); contact.visible = curStyle.key === 'A';
@@ -1785,7 +2013,7 @@ addEventListener('resize', () => {
 newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
