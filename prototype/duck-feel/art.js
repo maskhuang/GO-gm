@@ -135,7 +135,7 @@ export function buildMother(duck, toon, BODY) {
   foot.material.side = THREE.DoubleSide; foot.rotation.x = -Math.PI / 2; foot.position.set(0, 0.02, 0.95); foot.visible = false;
   duck.add(foot);
 
-  return { body, head, jaw, crest, eyes, wings, tail, foot };
+  return { body, chest, neck, head, jaw, crest, eyes, wings, tail, foot };
 }
 
 // ---------- 雏鸭：干净的亮黄毛球 + 大头 + 呆毛；用呆毛和眼睛区分性格 ----------

@@ -73,7 +73,7 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=3';
+import * as ART from './art.js?v=5';
 import { createStylize, POST_MODES } from './stylize.js?v=3';
 const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
@@ -214,12 +214,34 @@ const contact = ART.contactShadow(); scene.add(contact);   // 起伏的河岸 + 
 // ---------- 鸭妈妈 ----------
 const BACK_A = 0.5, BACK_B = 0.72;            // 背部可站立区域（半宽 / 半长）
 const BODY = { rx: 0.75, ry: 0.5, rz: 1.0, cy: 0.2 };
-const backHeight = (x, z) => BODY.cy + BODY.ry * Math.sqrt(Math.max(0, 1 - (x / BODY.rx) ** 2 - (z / BODY.rz) ** 2));
+const ellH = (x, z) => BODY.cy + BODY.ry * Math.sqrt(Math.max(0, 1 - (x / BODY.rx) ** 2 - (z / BODY.rz) ** 2));
+// 背部高度场：开局从上往下对真实模型（身体/前胸/翅膀）打射线，宝宝站在模型表面上，而不是假想的椭球上（否则会陷进前胸和翅膀）
+const HF = { x0: -0.7, z0: -0.95, step: 0.025, nx: 57, nz: 77, h: null };
+function backHeight(x, z) {   // z = 背上坐标（往前为正）
+  if (!HF.h) return ellH(x, z);
+  const gx = THREE.MathUtils.clamp((x - HF.x0) / HF.step, 0, HF.nx - 1.001), gz = THREE.MathUtils.clamp((z - HF.z0) / HF.step, 0, HF.nz - 1.001);
+  const i = Math.floor(gx), j = Math.floor(gz), fx = gx - i, fz = gz - j, h = HF.h, n = HF.nx;
+  return (h[j * n + i] * (1 - fx) + h[j * n + i + 1] * fx) * (1 - fz) + (h[(j + 1) * n + i] * (1 - fx) + h[(j + 1) * n + i + 1] * fx) * fz;
+}
 
 const duck = new THREE.Group();
 scene.add(duck);
 const M = ART.buildMother(duck, toon, BODY);
 const { head, wings, foot, jaw } = M;
+{
+  duck.updateMatrixWorld(true);
+  const targets = [M.body, M.chest, ...M.wings.flatMap(w => w.children)];
+  const rc = new THREE.Raycaster(), o = new THREE.Vector3(), dn = new THREE.Vector3(0, -1, 0);
+  const h = new Float32Array(HF.nx * HF.nz);
+  for (let j = 0; j < HF.nz; j++) for (let i = 0; i < HF.nx; i++) {
+    const x = HF.x0 + i * HF.step, z = HF.z0 + j * HF.step;
+    rc.set(o.set(x, 5, -z), dn);
+    const hit = rc.intersectObjects(targets, false)[0];
+    h[j * HF.nx + i] = hit ? hit.point.y : ellH(x, z);
+  }
+  HF.h = h;
+}
+const NECK = { z: 0.8, r: 0.21 };   // 脖子在背上坐标里的位置：宝宝走到这里会被挡住
 // 背部警示区：贴着背的弧面（平的会飘在宝宝上方，把它们染色）
 const patchGeo = new THREE.RingGeometry(0.001, 1, 48, 10);
 {
@@ -803,14 +825,31 @@ function updateDucklingOnBack(d, dt) {
 
 function collideDucklings() {
   const on = ducklings.filter(d => d.state === 'onBack');
+  for (const d of on) {   // 脖子是障碍物
+    const dx = d.x, dz = d.z - NECK.z, dd = Math.hypot(dx, dz), minD = NECK.r + 0.12 * d.scale;
+    if (dd < minD) {
+      const nx = dd > 1e-4 ? dx / dd : (Math.random() < 0.5 ? -1 : 1), nz = dd > 1e-4 ? dz / dd : 0;
+      d.x = nx * minD; d.z = NECK.z + nz * minD;
+      const vn = d.vx * nx + d.vz * nz; if (vn < 0) { d.vx -= vn * nx; d.vz -= vn * nz; }
+    }
+  }
+  // 宝宝之间：每只两个碰撞圆（身体 + 跟着朝向伸出去的大头），两两检测，头不会再插进别人身体里
+  const hr = 0.12 * (1 + 0.2 * P.chibi);
+  const circles = d => {
+    const fx = -Math.sin(d.heading), fz = Math.cos(d.heading);   // 朝向（背上坐标）
+    return [[d.x, d.z, 0.135 * d.scale], [d.x + fx * 0.1 * d.scale, d.z + fz * 0.1 * d.scale, hr * d.scale]];
+  };
   for (let i = 0; i < on.length; i++) for (let j = i + 1; j < on.length; j++) {
     const a = on[i], b = on[j];
-    const minD = 0.13 * (a.scale + b.scale);
-    const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
-    if (d > 0 && d < minD) {
-      const nx = dx / d, nz = dz / d, push = (minD - d), ma = a.mass, mb = b.mass;
-      a.x -= nx * push * mb / (ma + mb); a.z -= nz * push * mb / (ma + mb);
-      b.x += nx * push * ma / (ma + mb); b.z += nz * push * ma / (ma + mb);
+    let best = 0, nx = 0, nz = 0;
+    for (const ca of circles(a)) for (const cb of circles(b)) {
+      const dx = cb[0] - ca[0], dz = cb[1] - ca[1], dd = Math.hypot(dx, dz), pen = ca[2] + cb[2] - dd;
+      if (pen > best) { best = pen; nx = dd > 1e-4 ? dx / dd : 1; nz = dd > 1e-4 ? dz / dd : 0; }
+    }
+    if (best > 0) {
+      const ma = a.mass, mb = b.mass;
+      a.x -= nx * best * mb / (ma + mb); a.z -= nz * best * mb / (ma + mb);
+      b.x += nx * best * ma / (ma + mb); b.z += nz * best * ma / (ma + mb);
       const rel = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
       let imp = rel < 0 ? -rel * 1.2 : 0;
       if (a.kind === 'twin' && b.kind === 'twin' && a.fighting) { imp += 1.4; a.fighting = b.fighting = false; peep(2600, 0.15); }
@@ -934,6 +973,17 @@ function step(dt) {
     }
   }
   collideDucklings();
+  // 水里的宝宝：互相推开，也不能钻进妈妈身体的轮廓里
+  const sw = ducklings.filter(d => d.state === 'floating' || d.state === 'queued' || d.state === 'stray');
+  for (let i = 0; i < sw.length; i++) {
+    const a = sw[i];
+    for (let j = i + 1; j < sw.length; j++) {
+      const b = sw[j], dx = b.wp.x - a.wp.x, dz = b.wp.z - a.wp.z, dd = Math.hypot(dx, dz), minD = 0.15 * (a.scale + b.scale) * (1 + 0.1 * P.chibi);
+      if (dd > 1e-4 && dd < minD) { const k = (minD - dd) / dd * 0.5; a.wp.x -= dx * k; a.wp.z -= dz * k; b.wp.x += dx * k; b.wp.z += dz * k; }
+    }
+    const ex = (a.wp.x - S.x) / (BODY.rx + 0.12), ez = (a.wp.z - S.z) / (BODY.rz + 0.12), er = Math.hypot(ex, ez);
+    if (er < 1 && er > 1e-4) { a.wp.x = S.x + ex / er * (BODY.rx + 0.12); a.wp.z = S.z + ez / er * (BODY.rz + 0.12); }
+  }
 }
 
 function updateWorld(dt) {
@@ -1087,7 +1137,7 @@ function arrive() {
 }
 function homeSpot(i, n, out) {
   const a = Math.PI + (i - (n - 1) / 2) * Math.min(0.55, 2.6 / Math.max(1, n));   // 在窝前排成一道弧，面朝镜头
-  return out.set(Math.sin(a) * -0.42, HOME.nestY, 0.05 + Math.cos(a) * -0.42).add(HOME.group.position);
+  return out.set(Math.sin(a) * -0.66, HOME.nestY - 0.03, 0.05 + Math.cos(a) * -0.66).add(HOME.group.position);   // 站在窝沿外面
 }
 function updateArrival(dt) {
   S.arriveT += dt;
@@ -1368,13 +1418,14 @@ function syncVisuals(realDt, simDt) {
   if (!look && (t % 6.5) > 5.2) look = tmpV.set(Math.sin(t * 0.37) > 0 ? 0.3 : -0.3, 0, 0.6);   // 闲着时回头瞄一眼
   if (look) {
     const hb0 = head.userData.base;
-    yaw = THREE.MathUtils.clamp(Math.atan2(-(look.x - hb0.x), -(look.z - hb0.z)), -2.7, 2.7);
+    yaw = THREE.MathUtils.clamp(Math.atan2(-(look.x - hb0.x), -(look.z - hb0.z)), -2.1, 2.1);   // 最多回头 120°：再往后大嘴会扫过背上的宝宝
   }
   S.headYaw = (S.headYaw ?? 0) + (yaw - (S.headYaw ?? 0)) * Math.min(1, realDt * 7);
   head.rotation.set((S.flap > 0 ? -Math.sin(S.flap * 20) * 0.15 : 0) + S.pitch * 0.5 - q * 0.25, S.headYaw, S.roll * 0.6);
   // 游泳时一点一点地点头；嘎！时伸长脖子、冠羽炸毛；偶尔眨眼
   const hb = head.userData.base, bob = Math.sin(t * 4.4);
-  head.position.set(0, hb.y + bob * 0.015 + q * 0.12, hb.z - Math.max(0, bob) * 0.025 - q * 0.16);
+  const lookBack = THREE.MathUtils.smoothstep(Math.abs(S.headYaw), 1.0, 2.1);   // 回头时把头抬高，越过背上的宝宝
+  head.position.set(0, hb.y + bob * 0.015 + q * 0.12 + lookBack * 0.12, hb.z - Math.max(0, bob) * 0.025 - q * 0.16 + lookBack * 0.05);
   // 冠羽 = 嘎！的冷却：冷却中趴下去，好了「噗」地竖起来（加一声轻响）
   const cdK = P.quackCooldown > 0 ? S.quackCd / P.quackCooldown : 0;
   if (S.wasCd && cdK <= 0) { S.crestPop = 0.35; bloop(520, 0.08); }
