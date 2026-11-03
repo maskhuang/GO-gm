@@ -52,7 +52,7 @@
   已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
-<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
+<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
@@ -105,6 +105,14 @@ const DEFAULTS = {
   lurkerReach: 0.5,      // 咬中半径
   lurkerBump: 1.6,       // 从妈妈身下穿过时顶一下的力度
   hawkCircle: 1.6,       // 鹰盘旋多久才俯冲（秒）
+  rapidsFirst: 22,       // 开局多久第一次遇到急流（秒）
+  rapidsInterval: 38,    // 之后平均间隔（秒）
+  rapidsLen: 26,         // 急流段长度（米）
+  rapidsFlow: 1.7,       // 急流里水流加速倍数
+  rapidKick: 1.4,        // 浪掀一下的力度
+  rapidsRocks: 4,        // 急流里的礁石数
+  dropKick: 4.5,         // 落差：往前栽的力度（落水后反弹约 3/4）
+  dropSlide: 1.0,        // 落差：背上宝宝往前扑的惯性
   hawkWarn: 1.0,         // 俯冲预警（秒）：这段时间里嘎！就能护住
   coverTime: 1.0,        // 嘎！后护崽持续多久：背上的缩成团、水里的潜下去
   artStyle: 'A',         // 美术风格：orig 原版 / A 扁平 / B 绘本 / C 低模
@@ -315,6 +323,20 @@ function whooshSound() {
   const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.5; f.frequency.setValueAtTime(400, t); f.frequency.exponentialRampToValueAtTime(1400, t + len);
   const g = actx.createGain(); g.gain.value = 0.45;
   src.connect(f).connect(g).connect(master); src.start(t);
+}
+let rumble = null;   // 急流的轰鸣：循环噪声，音量随离落差的距离变
+function rumbleGain(v) {
+  if (!actx) return;
+  if (!rumble) {
+    const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 650;
+    const g = actx.createGain(); g.gain.value = 0;
+    src.connect(f).connect(g).connect(master); src.start();
+    rumble = g;
+  }
+  rumble.gain.setTargetAtTime(v * 0.28, actx.currentTime, 0.15);
 }
 function chompSound() {
   if (!actx) return;
@@ -558,6 +580,7 @@ const S = {
   roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0,
   dist: 0, quackCd: 0, flap: 0, saves: 0, timeScale: 1, slowMo: 0,
   logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, paused: false, started: false, over: false,
+  rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0,
   queue: [], xHistory: [],
 };
 let best = 0; try { best = +localStorage.getItem('duckShiftBest') || 0; } catch (e) {}
@@ -565,7 +588,9 @@ const mouse = { x: 0, y: 0 };
 
 function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
-    timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [] });
+    timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
+    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0 });
+  endRapids();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
   wake.active = false; kayak.visible = false; hawkState.phase = 'idle'; hawkState.target = null; hawk.visible = false; hawkRing.visible = false; hawkShadow.material.opacity = 0; S.cover = 0;
@@ -817,11 +842,13 @@ function step(dt) {
 }
 
 function updateWorld(dt) {
-  S.dist += P.riverSpeed * dt;
-  for (const t of riverTexes) t.offset.y += P.riverSpeed * dt / (120 / t.repeat.y);
+  const flow = P.riverSpeed * S.flowMul;   // 急流里水流加速
+  S.dist += flow * dt;
+  for (const t of riverTexes) t.offset.y += flow * dt / (120 / t.repeat.y);
   S.xHistory.push(S.x); if (S.xHistory.length > 400) S.xHistory.shift();
-  shore.update(S.dist, performance.now() / 1000, dt, P.riverSpeed);
-  fx.update(dt, P.riverSpeed);
+  shore.update(S.dist, performance.now() / 1000, dt, flow);
+  fx.update(dt, flow);
+  updateRapids(dt);
   // 尾迹：妈妈两侧交替冒圈，被水流带走就拉成 V 字
   S.wakeEmit = (S.wakeEmit ?? 0) - dt;
   if (S.wakeEmit <= 0 && curStyle.foam) {
@@ -835,7 +862,7 @@ function updateWorld(dt) {
   S.logTimer -= dt * P.hazardRate;
   if (S.logTimer <= 0) { spawnLog(); S.logTimer = rand(2.2, 4.5); }
   for (let i = logs.length - 1; i >= 0; i--) {
-    const l = logs[i]; l.g.position.z += P.riverSpeed * dt * 1.15;
+    const l = logs[i]; l.g.position.z += flow * dt * 1.15;
     l.g.position.y = 0.08 + Math.sin(performance.now() / 300 + i) * 0.02;
     const dx = S.x - l.g.position.x, dz = l.g.position.z - S.z;
     if (!l.hit && Math.abs(dz) < 0.9 && Math.abs(dx) < 1.1) {
@@ -874,6 +901,74 @@ function updateWorld(dt) {
     p.m.scale.setScalar(Math.max(0.01, p.life));
     if (p.life <= 0 || p.m.position.y < -0.1) { p.life = 0; p.m.visible = false; }
   }
+}
+
+// 急流 + 落差：一段加速、浪掀、有礁石的水面，尽头一条落差线；越过时往前栽、落水、反弹
+const RP = { on: false, uA: 0, uB: 0, rocks: [], dropped: false, landT: 0, kickT: 0 };
+function startRapids() {
+  endRapids();
+  const u0 = S.z - S.dist - 16;   // 从前方 16 米开始
+  Object.assign(RP, { on: true, uB: u0, uA: u0 - P.rapidsLen, dropped: false, landT: 0, kickT: 0 });
+  for (let i = 0; i < P.rapidsRocks; i++) {
+    const m = ART.buildRiverRock(); m.scale.setScalar(rand(1.4, 2)); m.userData.u = rand(RP.uA + 5, RP.uB - 3);
+    m.position.set(rand(-1, 1) * (RIVER_HALF - 1.2), -0.05, m.userData.u + S.dist);
+    scene.add(m); RP.rocks.push({ m, hit: false, r: 0.3 * m.scale.x });
+  }
+  alertless('前方急流！还有落差 🌊');
+}
+function endRapids() {
+  for (const r of RP.rocks) r.m.removeFromParent();
+  RP.rocks.length = 0; RP.on = false;
+}
+function updateRapids(dt) {
+  const uMom = S.z - S.dist;   // 鸭妈妈所在的地面坐标（往前走越来越小）
+  if (RP.landT > 0) {   // 落水：反弹抬头 + 大水花 + 镜头抖
+    RP.landT -= dt;
+    if (RP.landT <= 0) {
+      S.pitchV -= P.dropKick * 0.75; S.rollV += rand(-1, 1) * P.dropKick * 0.4; S.shake = 0.35;
+      for (const d of ducklings) if (d.state === 'onBack') d.vz -= P.dropSlide * 0.6;   // 落水一顿：往后坐
+      splash(new THREE.Vector3(S.x, 0, S.z - 0.6), 30, 1.3); splashSound(); thudSound();
+      fx.ring(S.x, S.z, { r0: 0.6, r1: 2.4, life: 0.8, opacity: 0.8 }); fx.ring(S.x, S.z, { r0: 0.3, r1: 1.4, life: 1, opacity: 0.6 });
+    }
+  }
+  if (!RP.on) {
+    S.flowMul += (1 - S.flowMul) * Math.min(1, dt * 1.5);
+    rumbleGain(0);
+    S.rapidsTimer -= dt * P.hazardRate;
+    if (S.rapidsTimer <= 0) startRapids();
+    return;
+  }
+  const inZone = uMom <= RP.uB && uMom >= RP.uA;
+  S.flowMul += ((inZone ? P.rapidsFlow : 1) - S.flowMul) * Math.min(1, dt * 1.5);
+  if (inZone) {   // 浪：一下一下地掀
+    RP.kickT -= dt;
+    if (RP.kickT <= 0) {
+      RP.kickT = rand(0.45, 0.9);
+      S.rollV += rand(-1, 1) * P.rapidKick; S.pitchV += rand(-0.6, 1) * P.rapidKick * 0.6;
+      fx.ring(S.x + rand(-0.5, 0.5), S.z - 0.9, { r0: 0.2, r1: 0.8, life: 0.6, opacity: 0.5 });
+    }
+  }
+  for (const r of RP.rocks) {
+    r.m.position.z = r.m.userData.u + S.dist;
+    const dx = S.x - r.m.position.x, dz = r.m.position.z - S.z;
+    if (!r.hit && Math.abs(dz) < 0.7 + r.r * 0.5 && Math.abs(dx) < 0.7 + r.r) {
+      r.hit = true; thudSound();
+      S.rollV += Math.sign(dx || 1) * P.hitStrength * 1.2; S.pitchV -= P.hitStrength * 0.6; S.vx += Math.sign(dx || 1) * 1.8;
+      splash(new THREE.Vector3(r.m.position.x, 0, r.m.position.z), 12, 0.8);
+    }
+  }
+  if (!RP.dropped && uMom <= RP.uA) {   // 越过落差线：往前栽
+    RP.dropped = true; RP.landT = 0.32; S.dropT = 0.55;
+    S.pitchV += P.dropKick; whooshSound();
+    for (const d of ducklings) if (d.state === 'onBack') { d.vz += P.dropSlide * rand(0.8, 1.2); d.vx += rand(-0.2, 0.2); }   // 突然下坠：背上的往前扑
+    for (const d of ducklings) if (d.state === 'floating' || d.state === 'queued') {   // 跟游的被冲散、更累
+      if (d.state === 'floating') d.floatT += P.lostTime * 0.35;
+      d.wp.x += rand(-0.6, 0.6); splash(d.wp, 8, 0.6);
+    }
+  }
+  const toDrop = uMom - RP.uA;
+  rumbleGain(RP.dropped ? 0.15 * Math.max(0, 1 + toDrop / 4) : THREE.MathUtils.clamp(1 - (toDrop - 1) / (P.rapidsLen + 16), 0.15, 1));
+  if (RP.uA + S.dist > 14) { endRapids(); S.rapidsTimer = P.rapidsInterval * rand(0.8, 1.2); }
 }
 
 // 鹰：影子由远及近 → 盘旋 → 选最暴露的宝宝（水里的优先，其次背上最靠边的）俯冲 → 没护住就叼走
@@ -1036,7 +1131,8 @@ function spawnLurker() {
 function syncVisuals(realDt, simDt) {
   const t = performance.now() / 1000;
   const sinkK = S.sink > 0 ? Math.sin(Math.min(1, S.sink / 0.6) * Math.PI) : 0;
-  duck.position.set(S.x, Math.sin(t * 2.2) * 0.025 - sinkK * 0.14, S.z);
+  const dipK = S.dropT > 0 ? Math.sin((1 - S.dropT / 0.55) * Math.PI) * 0.3 : 0;   // 落差：整只往下一沉
+  duck.position.set(S.x, Math.sin(t * 2.2) * 0.025 - sinkK * 0.14 - dipK, S.z);
   foot.visible = sinkK > 0.05; foot.position.z = 1.0 + sinkK * 0.35;
   duck.rotation.set(-S.pitch, 0, -S.roll, 'ZXY');
   // 头：鸟会稳住头部（抵消身体倾斜），没事时左右张望；嘎！时伸脖子张嘴
@@ -1123,7 +1219,8 @@ function syncVisuals(realDt, simDt) {
   }
   if (riverC.visible) updateRiverC(t);
   waterA.uniforms.uTime.value = t; waterA.uniforms.uDist.value = S.dist;
-  waterA.uniforms.uFocus.value.set(S.x, S.z); waterA.uniforms.uFocusAmt.value = P.focus ? 1 : 0;
+  waterA.uniforms.uFocus.value.set(S.x, S.z);
+  waterA.uniforms.uRapA.value = RP.uA; waterA.uniforms.uRapB.value = RP.uB; waterA.uniforms.uRapOn.value = RP.on ? 1 : 0; waterA.uniforms.uFocusAmt.value = P.focus ? 1 : 0;
   contact.position.set(S.x, 0.015, S.z + 0.05); contact.visible = curStyle.key === 'A';
 
   // 水平仪
@@ -1141,6 +1238,7 @@ function syncVisuals(realDt, simDt) {
     const a = THREE.MathUtils.degToRad(P.camAngle);
     camera.position.set(S.x * 0.8, P.camHeight * Math.cos(a), S.z * 0.6 + P.camHeight * Math.sin(a));
     camera.lookAt(S.x * 0.8, 0, S.z * 0.6);
+    if (S.shake > 0) camera.position.add(tmpV.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(S.shake * 0.25));
   } else {
     camera.position.set(S.x * 0.7, 3.4, S.z + 5.2);
     camera.lookAt(S.x * 0.85, 0.6, S.z - 0.8);
@@ -1186,7 +1284,9 @@ function frame(now) {
     S.flap = Math.max(0, S.flap - simDt);
     S.sink = Math.max(0, S.sink - simDt);
     S.cover = Math.max(0, (S.cover || 0) - simDt);
+    S.dropT = Math.max(0, S.dropT - simDt); S.shake = Math.max(0, S.shake - realDt);
   }
+  if (!(S.started && !S.paused && !S.over)) rumbleGain(0);
   syncVisuals(realDt, simDt);
   renderer.render(scene, camera);
 }
@@ -1246,6 +1346,16 @@ f8.add(P, 'hawkCircle', 0.3, 4, 0.1).name('盘旋秒').onChange(onCh);
 f8.add(P, 'hawkWarn', 0.3, 2.5, 0.05).name('俯冲预警秒').onChange(onCh);
 f8.add(P, 'coverTime', 0.2, 2.5, 0.05).name('嘎！护崽秒').onChange(onCh);
 f8.add({ go() { if (S.started && hawkState.phase === 'idle') spawnHawk(); } }, 'go').name('🦅 立刻召唤');
+const f9 = gui.addFolder('急流与落差');
+f9.add(P, 'rapidsFirst', 0, 90, 1).name('首次出现秒').onChange(onCh);
+f9.add(P, 'rapidsInterval', 10, 120, 1).name('平均间隔秒').onChange(onCh);
+f9.add(P, 'rapidsLen', 8, 60, 1).name('急流长度米').onChange(onCh);
+f9.add(P, 'rapidsFlow', 1, 3, 0.1).name('水流加速倍数').onChange(onCh);
+f9.add(P, 'rapidKick', 0, 4, 0.1).name('浪掀力度').onChange(onCh);
+f9.add(P, 'rapidsRocks', 0, 10, 1).name('礁石数').onChange(onCh);
+f9.add(P, 'dropKick', 0, 8, 0.1).name('落差前栽力度').onChange(onCh);
+f9.add(P, 'dropSlide', 0, 3, 0.1).name('落差宝宝前扑').onChange(onCh);
+f9.add({ go() { if (S.started) startRapids(); } }, 'go').name('🌊 立刻来一段');
 const f5 = gui.addFolder('镜头与特效');
 f5.add(P, 'cameraMode', { '3D 俯视': 'top', '身后追尾': 'chase' }).name('视角').onChange(onCh);
 f5.add(P, 'camHeight', 4, 18, 0.5).name('俯视：镜头距离').onChange(onCh);
@@ -1275,7 +1385,7 @@ addEventListener('resize', () => {
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, H: hawkState, spawnHawk, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { S, P, L, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>

@@ -445,6 +445,7 @@ export function createWater(half) {
   const uniforms = {
     uTime: { value: 0 }, uDist: { value: 0 }, uHalf: { value: half }, uRipple: { value: rippleMask() },
     uFocus: { value: new THREE.Vector2() }, uFocusAmt: { value: 1 },
+    uRapA: { value: 0 }, uRapB: { value: 0 }, uRapOn: { value: 0 },   // 急流区（地面坐标 uRapA < u < uRapB），uRapA 处是落差线
     uDeep: { value: new THREE.Color(0x4ab3ca) }, uShallow: { value: new THREE.Color(0xa3e6da) },
     uFoam: { value: new THREE.Color(0xffffff) },
   };
@@ -457,7 +458,7 @@ export function createWater(half) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', /* glsl */`#include <common>
 varying vec3 vWPos;
-uniform float uTime, uDist, uHalf, uFocusAmt;
+uniform float uTime, uDist, uHalf, uFocusAmt, uRapA, uRapB, uRapOn;
 uniform vec2 uFocus;
 uniform sampler2D uRipple;
 uniform vec3 uDeep, uShallow, uFoam;
@@ -490,6 +491,21 @@ ${SHORE_GLSL}`)
   float sp = step(0.97, h) * smoothstep(0.75, 1.0, tw) * (1.0 - smoothstep(0.04, 0.1, length(fract(sc) - 0.5)));
   sp *= mix(1.0, smoothstep(4.0, 1.2, fd), uFocusAmt);            // 聚焦时闪点只留在鸭子附近
   col = mix(col, uFoam, sp * smoothstep(0.3, 1.0, d));            // 阳光闪点
+  if (uRapOn > 0.5) {
+    // 急流：水色发白、顺流的白色条纹、一排排驻波
+    float inR = smoothstep(uRapA - 0.3, uRapA + 1.5, u) * (1.0 - smoothstep(uRapB - 2.0, uRapB + 0.5, u));
+    float zf = vWPos.z - uDist * 1.8;
+    float streak = smoothstep(0.68, 0.85, vnoise(vec2(vWPos.x * 6.0, zf * 0.5)));   // 细长的顺流白线
+    float chev = smoothstep(0.93, 1.0, sin(zf * 4.0 + abs(vWPos.x) * 2.5)) * smoothstep(0.4, 0.7, vnoise(vec2(vWPos.x * 1.5, u * 0.8)));
+    col = mix(col, mix(col, vec3(0.8, 0.97, 0.96), 0.15), inR);
+    col = mix(col, uFoam, inR * max(streak * 0.55, chev * 0.5) * smoothstep(0.15, 0.6, d));
+    // 落差线：一条抖动的白线，线下游一片翻腾的水花，线上游的水面略暗（坎沿）
+    float dl = abs(u - uRapA) + (vnoise(vec2(vWPos.x * 4.0, uTime * 2.0)) - 0.5) * 0.12;
+    float dropLine = 1.0 - smoothstep(0.08, 0.24, dl);
+    float spray = step(uRapA, u) * (1.0 - smoothstep(0.0, 1.0, u - uRapA)) * smoothstep(0.45, 0.7, vnoise(vec2(vWPos.x * 5.0, (vWPos.z - uDist * 2.5) * 3.0 + uTime * 4.0)));
+    col *= 1.0 - 0.18 * step(u, uRapA) * (1.0 - smoothstep(0.0, 0.7, uRapA - u));
+    col = mix(col, uFoam, max(dropLine, spray * 0.85) * smoothstep(0.0, 0.3, d));
+  }
   col = mix(col, col * mix(0.72, 1.0, smoothstep(6.0, 1.6, fd)), uFocusAmt);   // 离鸭子越远越暗（不提亮鸭子周围：那会降低鸭和水的对比）
   diffuseColor.rgb = col;
 }`);
@@ -651,6 +667,8 @@ export function createFX(scene) {
 }
 
 // 鸭妈妈身下的柔和接触阴影：把她「压」在水面上，也给视线一个落点
+export const buildRiverRock = () => buildRock();   // 急流里的礁石（带泡沫圈）
+
 export function contactShadow() {
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
