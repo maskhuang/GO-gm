@@ -672,7 +672,48 @@ export function createFX(scene) {
 }
 
 // 鸭妈妈身下的柔和接触阴影：把她「压」在水面上，也给视线一个落点
-export const buildRiverRock = () => buildRock();   // 急流里的礁石（带泡沫圈）
+export const buildRiverRock = () => buildRock();
+
+// 终点：长满芦苇的小岛 + 鸟窝 + 写着「家」的木牌，周围一片睡莲
+// 返回 { group, nestY, lily }；小岛中心在 group 原点，宝宝到家后站在窝的周围
+export function buildHome(half) {
+  const g = new THREE.Group();
+  const parts = [];
+  parts.push(part(new THREE.SphereGeometry(1.5, 28, 12), 0xe9d9a6, [0, -0.15, 0], [0, 0, 0], [1, 0.22, 1]));   // 沙边
+  parts.push(part(new THREE.SphereGeometry(1.3, 28, 12), 0x9ad47c, [0, -0.06, 0], [0, 0, 0], [1, 0.26, 1]));   // 草顶
+  parts.push(part(new THREE.TorusGeometry(0.36, 0.1, 8, 20), 0xa77a4e, [0, 0.27, 0.05], [Math.PI / 2, 0, 0]));   // 鸟窝
+  parts.push(part(new THREE.CircleGeometry(0.3, 16), 0xf3ede0, [0, 0.26, 0.05], [-Math.PI / 2, 0, 0]));          // 窝里的绒毛
+  for (let i = 0; i < 10; i++) {   // 窝边翘出来的小树枝
+    const a = i / 10 * TAU, tw = new THREE.CylinderGeometry(0.012, 0.012, 0.22, 4);
+    parts.push(part(tw, 0x8a5d3b, [Math.cos(a) * 0.4, 0.3, 0.05 + Math.sin(a) * 0.4], [rand(-0.6, 0.6), a, Math.PI / 2 + rand(-0.4, 0.4)]));
+  }
+  const post = new THREE.CylinderGeometry(0.04, 0.05, 0.9, 6); post.translate(0, 0.45, 0);
+  parts.push(part(post, 0x8a5d3b, [0.75, 0.15, -0.55], [0, 0, 0.08]));
+  const isle = decorMesh(parts); g.add(isle);
+  // 木牌（正面朝镜头方向 +z）
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#c99561'; ctx.fillRect(0, 0, 256, 128);
+  ctx.strokeStyle = '#8a5d3b'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, 246, 118);
+  ctx.fillStyle = '#5a3a20'; ctx.font = 'bold 84px "PingFang SC", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('家', 128, 68);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.32, 0.04), [
+    ...Array(4).fill(new THREE.MeshToonMaterial({ color: 0xc99561, gradientMap: GRAD_A })),
+    new THREE.MeshToonMaterial({ map: new THREE.CanvasTexture(c), gradientMap: GRAD_A }),
+    new THREE.MeshToonMaterial({ color: 0xc99561, gradientMap: GRAD_A })]);
+  board.position.set(0.78, 1.02, -0.5); board.rotation.set(-0.35, -0.2, 0.08); board.castShadow = true; board.userData.skip = true;
+  g.add(board);
+  for (const [x, z] of [[-0.9, -0.6], [-0.3, -1.05], [0.4, -1.1], [-1.1, 0.1], [1.1, 0.2]]) {   // 小岛后半圈的芦苇
+    const r = buildReeds(); r.position.set(x, 0.05, z); r.scale.setScalar(rand(1, 1.4)); g.add(r);
+  }
+  const lily = [];
+  for (let i = 0; i < 12; i++) {   // 周围的睡莲
+    const l = buildLily(); const a = rand(0, TAU), rr = rand(1.8, half - 0.4);
+    l.position.set(Math.cos(a) * rr, 0, Math.sin(a) * rr * 1.6 + 1.5); l.rotation.y = rand(0, TAU); g.add(l); lily.push(l);
+  }
+  g.traverse(o => { if (o.isMesh) o.userData.skip = true; });
+  return { group: g, nestY: 0.26, lily };
+}   // 急流里的礁石（带泡沫圈）
 
 export function contactShadow() {
   const c = document.createElement('canvas'); c.width = c.height = 128;

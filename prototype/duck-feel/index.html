@@ -11,6 +11,10 @@
   #hud { position: fixed; left: 12px; top: 12px; color: #12324a; background: rgba(255,255,255,.8);
     padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.7; pointer-events: none; min-width: 150px; }
   #hud b { font-size: 16px; }
+  #prog { position: relative; height: 8px; background: #dfe9ef; border-radius: 4px; margin: 4px 22px 6px 0; }
+  #progFill { height: 100%; width: 0; background: #7cc4a0; border-radius: 4px; }
+  #progDuck { position: absolute; top: -9px; left: 0; font-size: 16px; transform: translateX(-50%); }
+  #progHome { position: absolute; top: -10px; right: -22px; font-size: 16px; }
   #cd { height: 6px; background: #dfe9ef; border-radius: 3px; overflow: hidden; margin-top: 2px; }
   #cdFill { height: 100%; width: 100%; background: #f2a33a; }
   #help { position: fixed; left: 12px; bottom: 12px; color: #12324a; background: rgba(255,255,255,.7);
@@ -49,7 +53,8 @@
 <body>
 <div id="hud">
   背上宝宝 <b id="onBack">5</b> / <span id="total">5</span> · 收养 <b id="adopted">0</b> · 救回 <b id="saves">0</b> · 捞回 <b id="catches">0</b> · 叼走 <b id="eaten">0</b><br>
-  已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
+  离家还有 <b id="dist">0</b> 米 · 最好 <span id="best">-</span><br>
+  <div id="prog"><div id="progFill"></div><span id="progDuck">🦆</span><span id="progHome">🏡</span></div>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
 <div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖　游到迷路的宝宝旁边就能收养它<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
@@ -96,7 +101,8 @@ const DEFAULTS = {
   lostTime: 12,          // 失温：从暖和到冻透要在水里泡多久（冻透就跟丢）
   warmRate: 0.3,         // 背上回暖速度（每秒回多少体温，背中间更快）
   director: true,        // 节奏编排：热身 → 逐个登场（首次带提示）→ 大威胁不叠加、有喘息 → 慢慢加快。关掉 = 各事件独立计时
-  rampTime: 300,         // 多少秒爬到最高强度
+  rampTime: 200,         // 多少秒爬到最高强度
+  journeyLen: 600,       // 一局的路程（米）：漂到终点的小岛就到家了
   orphanFirst: 30,       // 开局多久出现第一只迷路的宝宝（秒）
   orphanInterval: 32,    // 之后平均间隔（秒）
   adoptReach: 1.4,       // 游到离它多近就会跟上来
@@ -629,16 +635,16 @@ const S = {
   roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0,
   dist: 0, quackCd: 0, flap: 0, saves: 0, timeScale: 1, slowMo: 0,
   logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, paused: false, started: false, over: false,
-  rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0,
+  rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0,
   queue: [], xHistory: [],
 };
-let best = 0; try { best = +localStorage.getItem('duckShiftBest') || 0; } catch (e) {}
+let best = null; try { best = JSON.parse(localStorage.getItem('duckShiftBestHome') || 'null'); } catch (e) {}   // { home, stars }
 const mouse = { x: 0, y: 0 };
 
 function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
-    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0 });
+    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0 });
   endRapids(); resetDirector();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
@@ -666,7 +672,7 @@ function hideBanner() { banner.classList.add('hidden'); }
 function showBanner(html) { bannerText.innerHTML = html; banner.classList.remove('hidden'); }
 
 function quack() {
-  if (!S.started || S.over || S.quackCd > 0) return;
+  if (!S.started || S.over || S.arrived || S.quackCd > 0) return;
   ensureAudio(); quackSound();
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
   // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
@@ -807,8 +813,8 @@ function startHop(d) {
 
 function step(dt) {
   // 鸭妈妈倾斜：弹簧追鼠标 + 宝宝重量力矩 + 外力
-  const targetRoll = THREE.MathUtils.degToRad(P.maxTilt) * mouse.x;
-  const targetPitch = THREE.MathUtils.degToRad(P.maxTilt) * mouse.y * (P.invertY ? -1 : 1);
+  const targetRoll = S.arrived ? 0 : THREE.MathUtils.degToRad(P.maxTilt) * mouse.x;   // 到家后不再听鼠标
+  const targetPitch = S.arrived ? 0 : THREE.MathUtils.degToRad(P.maxTilt) * mouse.y * (P.invertY ? -1 : 1);
   let wRoll = 0, wPitch = 0;
   for (const d of ducklings) if (d.state === 'onBack') { wRoll += d.mass * d.x / BACK_A; wPitch += d.mass * d.z / BACK_B; }
   let distRoll = 0;
@@ -828,6 +834,7 @@ function step(dt) {
 
   // 宝宝
   for (const d of ducklings) {
+    if (d.state === 'onBack' && S.arrived) continue;   // 到家了：在背上等着轮到自己跳
     if (d.state === 'onBack') {
       updateDucklingOnBack(d, dt);
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
@@ -893,7 +900,7 @@ function step(dt) {
 }
 
 function updateWorld(dt) {
-  const flow = P.riverSpeed * S.flowMul;   // 急流里水流加速
+  const flow = P.riverSpeed * S.flowMul * journeyFlow();   // 急流里水流加速；快到家时慢慢停下
   S.dist += flow * dt;
   for (const t of riverTexes) t.offset.y += flow * dt / (120 / t.repeat.y);
   S.xHistory.push(S.x); if (S.xHistory.length > 400) S.xHistory.shift();
@@ -902,6 +909,7 @@ function updateWorld(dt) {
   updateRapids(dt);
   updateOrphans(dt, flow);
   updateDirector(dt);
+  updateJourney(dt);
   // 尾迹：妈妈两侧交替冒圈，被水流带走就拉成 V 字
   S.wakeEmit = (S.wakeEmit ?? 0) - dt;
   if (S.wakeEmit <= 0 && curStyle.foam) {
@@ -913,7 +921,7 @@ function updateWorld(dt) {
 
   // 漂流物
   S.logTimer -= dt * P.hazardRate;
-  if (S.logTimer <= 0) { spawnLog(); S.logTimer = rand(2.2, 4.5) * (P.director ? DIR.logMul : 1); }
+  if (S.logTimer <= 0 && P.journeyLen - S.dist > 35) { spawnLog(); S.logTimer = rand(2.2, 4.5) * (P.director ? DIR.logMul : 1); }
   for (let i = logs.length - 1; i >= 0; i--) {
     const l = logs[i]; l.g.position.z += flow * dt * 1.15;
     l.g.position.y = 0.08 + Math.sin(performance.now() / 300 + i) * 0.02;
@@ -985,7 +993,7 @@ function triggerEvent(ev, first) {
   else if (ev === 'hawk') { spawnHawk(); if (hint) alertless(hint, ms); }
 }
 function updateDirector(dt) {
-  if (!P.director) return;
+  if (!P.director || P.journeyLen - S.dist < 70) return;   // 最后 70 米不再出新威胁
   DIR.t += dt;
   const prog = THREE.MathUtils.clamp(DIR.t / P.rampTime, 0, 1);
   const warm = DIR.t < UNLOCK[0].at;
@@ -1011,6 +1019,73 @@ function updateDirector(dt) {
     triggerEvent(smalls[Math.floor(Math.random() * smalls.length)], false);
     DIR.nextSmall = DIR.t + THREE.MathUtils.lerp(22, 12, prog) * rand(0.8, 1.2) / Math.max(0.1, P.hazardRate);
   }
+}
+
+// ---------- 终点：漂到小岛就到家 ----------
+const HOME = ART.buildHome(RIVER_HALF); scene.add(HOME.group);
+const HOME_AHEAD = 3.4;   // 到家时小岛在鸭妈妈前方多远（太近会被她的头挡住）
+function journeyFlow() {
+  const rem = P.journeyLen - S.dist;
+  return S.arrived ? 0 : THREE.MathUtils.clamp(rem / 8, 0.06, 1);   // 最后 8 米慢慢停下
+}
+function updateJourney(dt) {
+  if (!S.arrived) S.time += dt;
+  HOME.group.position.set(0, 0, (S.z - P.journeyLen - HOME_AHEAD) + S.dist);   // 小岛固定在地面坐标上
+  for (const l of HOME.lily) l.position.y = Math.sin(performance.now() / 800 + l.position.x) * 0.006;
+  const rem = P.journeyLen - S.dist;
+  if (!S.arrived && rem < 10) S.vx += (0 - S.x) * dt * 3;   // 靠近时自动对准小岛
+  if (!S.arrived && rem < 0.5) arrive();
+  if (S.arrived) updateArrival(dt);
+}
+function arrive() {
+  S.arrived = true; S.arriveT = 0;
+  if (L.phase !== 'idle') { L.phase = 'leave'; L.timer = 1; }
+  if (['approach', 'circle', 'dive'].includes(hawkState.phase)) { hawkState.phase = 'leave'; hawkState.t = 0; hawkState.target = null; }
+  endRapids(); wake.active = false; kayak.visible = false;
+  quackSound(); S.flap = 0.5;
+  const fam = ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state));
+  fam.forEach((d, i) => { d.homeDelay = 0.8 + i * 0.35; d.homeIdx = i; d.homeN = fam.length; });
+  S.homeCount = fam.length;
+  alertless('到家啦！🏡', 2400);
+}
+function homeSpot(i, n, out) {
+  const a = Math.PI + (i - (n - 1) / 2) * Math.min(0.55, 2.6 / Math.max(1, n));   // 在窝前排成一道弧，面朝镜头
+  return out.set(Math.sin(a) * -0.42, HOME.nestY, 0.05 + Math.cos(a) * -0.42).add(HOME.group.position);
+}
+function updateArrival(dt) {
+  S.arriveT += dt;
+  for (const d of ducklings) {
+    if (d.homeDelay === undefined) continue;
+    if (d.state !== 'homing' && d.state !== 'home') {
+      d.homeDelay -= dt;
+      if (d.homeDelay <= 0) {   // 跳去窝里
+        if (d.state === 'onBack') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
+        d.state = 'homing'; d.hopT = 0; d.hopFrom = d.wp.clone(); d.teeter = 0; d.mouth = 1; peep(1900 + d.homeIdx * 120, 0.16);
+      }
+    } else if (d.state === 'homing') {
+      const dur = d.hopFrom.y < 0.2 ? 0.75 : 0.55;
+      d.hopT += dt / dur; const k = Math.min(1, d.hopT);
+      const to = homeSpot(d.homeIdx, d.homeN, new THREE.Vector3());
+      d.wp.lerpVectors(d.hopFrom, to, k); d.wp.y += Math.sin(k * Math.PI) * 0.9;
+      if (k >= 1) { d.state = 'home'; d.land = 1; fx.sparkle(d.wp.clone().setY(d.wp.y + 0.2), 4); peep(2400, 0.14); }
+    }
+  }
+  const allHome = ducklings.every(d => d.homeDelay === undefined || d.state === 'home');
+  if (allHome && !S.resultT) S.resultT = S.arriveT + 1.4;
+  if (S.resultT && S.arriveT >= S.resultT && !S.over) showResults();
+}
+function showResults() {
+  S.over = true;
+  const home = S.homeCount || 0, startN = KINDS.length;
+  const stars = home >= startN ? 3 : home >= 3 ? 2 : home >= 1 ? 1 : 0;
+  const adoptedHome = ducklings.filter(d => d.state === 'home' && d.name === '捡来的').length;
+  const isBest = !best || home > best.home;
+  if (isBest) { best = { home, stars }; try { localStorage.setItem('duckShiftBestHome', JSON.stringify(best)); } catch (e) {} }
+  const mm = Math.floor(S.time / 60), ss = String(Math.floor(S.time % 60)).padStart(2, '0');
+  showBanner(`<h1 style="margin:0">🏡 到家啦！</h1><div style="font-size:34px;letter-spacing:6px;color:#ffd24f">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
+    带回家 <b>${home}</b> 只宝宝${adoptedHome ? `（其中收养 ${adoptedHome} 只）` : ''}<br>
+    ${S.eaten ? `被叼走 ${S.eaten} 只 · ` : ''}救回 ${S.saves} 次 · 捞回 ${S.catches} 次 · 用时 ${mm}:${ss}<br>
+    ${isBest ? '🎉 新纪录！' : `最好成绩：${best.home} 只`}<br><br><b>点击或按 R 再漂一次</b>`);
 }
 
 // 急流 + 落差：一段加速、浪掀、有礁石的水面，尽头一条落差线；越过时往前栽、落水、反弹
@@ -1311,6 +1386,9 @@ function syncVisuals(realDt, simDt) {
       d.mesh.position.copy(d.wp);
       d.help.visible = d.state === 'floating';
       d.strayLbl.visible = d.state === 'stray';
+      if (d.state === 'home' || d.state === 'homing') d.zz.visible = d.coldLbl.visible = false;
+      if (d.state === 'home') d.mesh.rotation.set(0, Math.PI + Math.sin(t * 1.3 + d.homeIdx) * 0.3, 0);   // 到家：转过来面朝镜头
+      else if (d.state === 'homing') d.mesh.rotation.set(-Math.min(1, d.hopT) * Math.PI * 2, Math.PI, 0);
       if (d.state === 'stray') { d.mesh.position.y = 0.02 + Math.abs(Math.sin(t * 8 + d.wp.x * 5)) * 0.05; d.mesh.rotation.y = Math.sin(t * 1.5 + d.wp.x) * 0.8; }
       if (d.state === 'floating') {
         const prog = 1 - d.warmth;   // 越冷扑腾越急
@@ -1375,17 +1453,19 @@ function syncVisuals(realDt, simDt) {
   document.getElementById('saves').textContent = S.saves;
   document.getElementById('catches').textContent = S.catches;
   document.getElementById('eaten').textContent = S.eaten;
-  document.getElementById('dist').textContent = Math.floor(S.dist);
-  document.getElementById('best').textContent = Math.floor(best);
+  const rem = Math.max(0, P.journeyLen - S.dist), frac = Math.min(1, S.dist / P.journeyLen);
+  document.getElementById('dist').textContent = Math.ceil(rem);
+  document.getElementById('best').textContent = best ? `${best.home} 只 ${'★'.repeat(best.stars)}` : '-';
+  document.getElementById('progFill').style.width = (frac * 100) + '%';
+  document.getElementById('progDuck').style.left = (frac * 100) + '%';
   document.getElementById('cdFill').style.width = (100 * (1 - S.quackCd / P.quackCooldown)) + '%';
 
-  if (!S.over && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray')) {
+  if (!S.over && !S.arrived && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray')) {
     S.over = true;
-    if (S.dist > best) { best = S.dist; try { localStorage.setItem('duckShiftBest', String(best)); } catch (e) {} }
     const lost = (S.eaten ? `<br>被叼走了 ${S.eaten} 只 😢` : '') + (S.adopted ? `<br>一路收养了 ${S.adopted} 只迷路的宝宝 💛` : '');
     showBanner(S.eaten === ducklings.filter(d => d.state !== 'stray').length
-      ? `<b>宝宝们都被叼走了……</b><br>这次漂了 ${Math.floor(S.dist)} 米<br><br>点击或按 R 重来`
-      : `<b>全军落水！</b><br>这次漂了 ${Math.floor(S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}<br><br>点击或按 R 重来`);
+      ? `<b>宝宝们都被叼走了……</b><br>离家还差 ${Math.ceil(P.journeyLen - S.dist)} 米<br><br>点击或按 R 重来`
+      : `<b>全军落水！</b><br>离家还差 ${Math.ceil(P.journeyLen - S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}<br><br>点击或按 R 重来`);
   }
 }
 
@@ -1459,6 +1539,8 @@ f4.add(P, 'director').name('节奏编排（关=各自计时）').onChange(v => {
   onCh();
 });
 f4.add(P, 'rampTime', 60, 900, 10).name('爬到最难要多少秒').onChange(onCh);
+f4.add(P, 'journeyLen', 60, 2000, 10).name('一局路程（米）').onChange(onCh);
+f4.add({ go() { if (S.started && !S.arrived) S.dist = Math.max(S.dist, P.journeyLen - 25); } }, 'go').name('⏩ 跳到终点前');
 f4.add(P, 'hitStrength', 0, 6, 0.1).name('撞击力度').onChange(onCh);
 f4.add(P, 'steerByTilt').name('倾斜=转向').onChange(onCh);
 f4.add(P, 'steerStrength', 0, 15, 0.5).name('转向力度').onChange(onCh);
@@ -1523,7 +1605,7 @@ addEventListener('resize', () => {
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, COLD_TINT, spawnOrphan, DIR, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
