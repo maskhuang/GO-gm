@@ -235,6 +235,11 @@ export function animateDuckling(inner, t, st) {
   // 挤压拉伸：走路一弹一弹，落地压扁
   let sy = 1 + ((st.moving ? Math.sin(t * 18 + ph) * 0.07 : Math.sin(t * 2.5 + ph) * 0.02) - (st.land || 0) * 0.35) * k;
   if (st.stretch) sy += st.stretch * 0.25 * k;
+  if (st.cold > 0.35) {   // 冷得发抖
+    const c = (st.cold - 0.35) / 0.65;
+    inner.position.x = Math.sin(t * 70 + ph) * 0.012 * c;
+    head.rotation.z += Math.sin(t * 55 + ph) * 0.08 * c;
+  } else inner.position.x = 0;
   if (st.crouch) { sy *= 0.62; head.position.y = 0.21; for (const e of eyes) e.scale.y = 0.12; }   // 缩成一团、紧闭眼睛
   const sxz = 1 / Math.sqrt(Math.max(0.4, sy));
   inner.scale.set(s0 * sxz, s0 * sy, s0 * sxz);

@@ -52,7 +52,7 @@
   已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
-<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
+<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
@@ -93,7 +93,8 @@ const DEFAULTS = {
   babySwim: 1.4,         // 落水宝宝游去排队的速度
   climbReach: 1.3,       // 嘎！时离尾巴多近的宝宝能爬上来
   climbPerQuack: 1,      // 每次嘎！最多爬上来几只
-  lostTime: 12,          // 在水里多久没被接上就跟丢
+  lostTime: 12,          // 失温：从暖和到冻透要在水里泡多久（冻透就跟丢）
+  warmRate: 0.3,         // 背上回暖速度（每秒回多少体温，背中间更快）
   hopImpact: 1.0,        // 宝宝从尾巴爬上背时的冲击（让妈妈抬头，背上的往后滑）
   scrambleTime: 1.1,     // 爬上来后主动往前挪的时间（䴙䴘宝宝会从尾巴一路挪到脖子边）
   scrambleStrength: 1.8, // 往前挪的力度
@@ -205,6 +206,7 @@ const backPatch = new THREE.Mesh(patchGeo, new THREE.MeshToonMaterial({ color: 0
 backPatch.userData.skip = true;
 duck.add(backPatch);
 const backGroup = new THREE.Group(); duck.add(backGroup); // 宝宝挂在这里，随鸭妈妈一起倾斜
+const COLD_TINT = new THREE.Color(0xe2edf5);   // 冻僵的宝宝：褪成冰白（黄混蓝会发灰发绿，像脏了），靠「❄ 好冷」标签说清楚
 const PATCH_SAFE = new THREE.Color(0xf4f5f6), PATCH_DANGER = new THREE.Color(0xe8483b);
 
 // 水平仪（俯视时看清倾斜）：实心点 = 实际倾斜，空心圈 = 鼠标目标
@@ -221,11 +223,11 @@ const level = new THREE.Group(); scene.add(level);
 }
 
 // ---------- 宝宝 ----------
-function labelSprite(text) {
+function labelSprite(text, bg = 'rgba(255,255,255,0.85)', fg = '#12324a') {
   const c = document.createElement('canvas'); c.width = 128; c.height = 48;
   const g = c.getContext('2d');
-  g.fillStyle = 'rgba(255,255,255,0.85)'; g.beginPath(); g.roundRect(4, 4, 120, 40, 14); g.fill();
-  g.fillStyle = '#12324a'; g.font = 'bold 24px system-ui, "PingFang SC", sans-serif';
+  g.fillStyle = bg; g.beginPath(); g.roundRect(4, 4, 120, 40, 14); g.fill();
+  g.fillStyle = fg; g.font = 'bold 24px system-ui, "PingFang SC", sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 64, 25);
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
   s.scale.set(0.42, 0.16, 1); s.renderOrder = 10; return s;
@@ -249,11 +251,12 @@ function spawnDucklings() {
     const label = labelSprite(k.name); label.position.y = 0.55; mesh.add(label);
     const zz = labelSprite('Zz'); zz.position.set(0.15, 0.45, 0); zz.visible = false; mesh.add(zz);
     const help = labelSprite('救我！'); help.position.y = 0.55; help.visible = false; mesh.add(help);
+    const coldLbl = labelSprite('❄ 好冷', 'rgba(70,150,225,0.92)', '#fff'); coldLbl.position.y = 0.55; coldLbl.visible = false; mesh.add(coldLbl);
     backGroup.add(mesh); styleObject(mesh);
-    return { ...k, mesh, label, zz, help, teeter: 0, scramble: 0, x: START_POS[i][0], z: START_POS[i][1], vx: 0, vz: 0,
+    return { ...k, mesh, label, zz, help, coldLbl, teeter: 0, scramble: 0, x: START_POS[i][0], z: START_POS[i][1], vx: 0, vz: 0,
       state: 'onBack', timer: 1 + Math.random() * 3, tx: 0, tz: 0, sleeping: false, sleepTimer: 6 + Math.random() * 4,
       fightTimer: 5 + Math.random() * 4, fighting: false, heading: 0,
-      wp: new THREE.Vector3(), wv: new THREE.Vector3(), spin: new THREE.Vector3(), queueIdx: -1, peepCd: 0 };
+      wp: new THREE.Vector3(), wv: new THREE.Vector3(), spin: new THREE.Vector3(), queueIdx: -1, peepCd: 0, warmth: 1 };
   });
 }
 
@@ -655,7 +658,7 @@ function updateDucklingOnBack(d, dt) {
   let az = G * Math.sin(S.pitch) + G * P.domeCurvature * d.z / BACK_B;
 
   // 性格行为
-  let walk = 0.6 * P.wanderStrength, fric = 1;
+  let walk = 0.6 * P.wanderStrength * (0.5 + 0.5 * d.warmth), fric = 1;   // 冷的宝宝动作迟缓
   d.timer -= dt;
   if (d.scramble > 0) {
     // 刚从尾巴爬上来：拼命往背中间挪；胖墩挪得慢但劲大（力按体重补足）
@@ -782,6 +785,7 @@ function step(dt) {
     if (d.state === 'onBack') {
       updateDucklingOnBack(d, dt);
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
+      d.warmth = Math.min(1, d.warmth + dt * P.warmRate * (1.3 - 0.7 * Math.min(1, r)));   // 背上回暖，越靠中间（羽毛底下）越快
       if (r > 1) {
         if (d.teeter === 0) { peep(3000, 0.22); d.mouth = 1; }   // 开始扒边：尖叫
         d.teeter += dt;
@@ -801,16 +805,17 @@ function step(dt) {
     } else if (d.state === 'floating') {
       // 在水里：游到妈妈身后排成一串（秋沙鸭宝宝贴着妈妈的尾流游）
       d.floatT += dt;
+      d.warmth = Math.max(0, d.warmth - dt / P.lostTime);   // 水里失温（会累积：没暖透又掉下来冷得更快）
       const slot = train().indexOf(d);
       const delay = Math.min(S.xHistory.length - 1, (slot + 1) * 14);
       const tx = S.xHistory.length ? S.xHistory[S.xHistory.length - 1 - delay] : S.x;
-      const tz = S.z + BODY.rz + 0.3 + slot * 0.42;
+      const tz = S.z + BODY.rz + 0.3 + slot * 0.42 + (1 - d.warmth) * 1.3;   // 越冷越跟不上，往后落，渐渐超出尾巴够得着的范围
       const dx = tx - d.wp.x, dz = tz - d.wp.z, l = Math.hypot(dx, dz);
-      const stepLen = Math.min(l, P.babySwim * dt * (l > 1 ? 1 : 0.6 + l * 0.4));
+      const stepLen = Math.min(l, P.babySwim * (0.4 + 0.6 * d.warmth) * dt * (l > 1 ? 1 : 0.6 + l * 0.4));   // 越冷游得越慢，渐渐掉出尾巴够得着的范围
       if (l > 0.001) { d.wp.x += dx / l * stepLen; d.wp.z += dz / l * stepLen; }
       d.mesh.rotation.x *= 0.9; d.mesh.rotation.z *= 0.9;
       d.mesh.rotation.y += (0 - d.mesh.rotation.y) * Math.min(1, 4 * dt);   // 和妈妈一样朝上游
-      if (d.floatT > P.lostTime) { d.state = 'queued'; d.queueIdx = S.queue.length; S.queue.push(d); peep(900, 0.12); }
+      if (d.warmth <= 0) { d.state = 'queued'; d.queueIdx = S.queue.length; S.queue.push(d); peep(900, 0.12); }
     } else if (d.state === 'hopping') {
       d.hopT += dt / 0.35; const k = Math.min(1, d.hopT);
       const target = backGroup.localToWorld(tmpV.set(d.x, backHeight(d.x, d.z), -d.z));
@@ -962,7 +967,7 @@ function updateRapids(dt) {
     S.pitchV += P.dropKick; whooshSound();
     for (const d of ducklings) if (d.state === 'onBack') { d.vz += P.dropSlide * rand(0.8, 1.2); d.vx += rand(-0.2, 0.2); }   // 突然下坠：背上的往前扑
     for (const d of ducklings) if (d.state === 'floating' || d.state === 'queued') {   // 跟游的被冲散、更累
-      if (d.state === 'floating') d.floatT += P.lostTime * 0.35;
+      if (d.state === 'floating') d.warmth = Math.max(0.02, d.warmth - 0.35);
       d.wp.x += rand(-0.6, 0.6); splash(d.wp, 8, 0.6);
     }
   }
@@ -1166,6 +1171,14 @@ function syncVisuals(realDt, simDt) {
 
   for (const d of ducklings) {
     d.mouth = (d.mouth || 0) - realDt * 5; d.land = (d.land || 0) - realDt * 4;
+    // 失温：身体和头变蓝；材质每只单独一份（切风格后会被换回共享材质，这里自动重新克隆）
+    const inner = d.mesh.children[0], bodyM = inner.children[0], headM = inner.userData.head.children[0];
+    if (bodyM.material !== d.tintMat) {
+      d.tintMat = bodyM.material.clone(); d.tintBase = bodyM.material.color.clone(); d.tintEm = bodyM.material.emissive.clone();
+      bodyM.material = headM.material = d.tintMat;
+    }
+    const cold = (1 - d.warmth) * 0.6;
+    d.tintMat.color.copy(d.tintBase).lerp(COLD_TINT, cold); d.tintMat.emissive.copy(d.tintEm).multiplyScalar(1 - cold);
     d.label.visible = P.showLabels && d.state === 'onBack';
     if (d.state === 'onBack') {
       d.mesh.position.set(d.x, backHeight(d.x, d.z), -d.z);
@@ -1180,12 +1193,14 @@ function syncVisuals(realDt, simDt) {
       d.mesh.children[0].position.y = sp > 0.05 && !d.sleeping ? Math.abs(Math.sin(t * 18 + d.x * 10)) * 0.03 : 0;
       d.zz.visible = d.sleeping && d.teeter === 0;
       d.help.visible = d.teeter > 0;
+      d.coldLbl.visible = d.teeter === 0 && d.warmth < 0.5;   // 背上还没暖过来的
+      if (d.coldLbl.visible) { d.label.visible = false; d.zz.visible = false; }
       if (d.teeter > 0) { d.label.visible = false; d.mesh.children[0].rotation.z = Math.sin(t * 45) * 0.45; d.mesh.children[0].position.y = Math.abs(Math.sin(t * 30)) * 0.05; }
       else d.mesh.children[0].rotation.z = sp > 0.05 && !d.sleeping ? Math.sin(t * 18 + d.x * 10) * 0.1 : 0;   // 走路一摇一摆
       // 越靠近边缘越慌：啾声更高更急、翅芽乱扑
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), moving: sp > 0.05 && !d.sleeping, sleeping: d.sleeping, panic: d.teeter > 0 || r > 0.85,
-        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0 });
+        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0, cold: 1 - d.warmth });
       d.peepCd -= simDt;
       if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
       else if (!d.sleeping && Math.random() < simDt * 0.12 * P.chibi) { peep(2300 + Math.random() * 600, 0.025); d.mouth = 1; }   // 闲着偶尔叽一声
@@ -1193,7 +1208,7 @@ function syncVisuals(realDt, simDt) {
       d.mesh.position.copy(d.wp);
       d.help.visible = d.state === 'floating';
       if (d.state === 'floating') {
-        const prog = Math.min(1, d.floatT / P.lostTime);   // 越久越累，扑腾越急
+        const prog = 1 - d.warmth;   // 越冷扑腾越急
         d.mesh.position.y = 0.02 + Math.abs(Math.sin(t * (9 + prog * 12) + d.x * 7)) * (0.06 + prog * 0.08);   // 扑腾，越接近爬上来越用力
         d.mesh.children[0].rotation.z = Math.sin(t * 20 + d.z * 5) * 0.35;
       } else if (d.state === 'queued') {
@@ -1202,8 +1217,10 @@ function syncVisuals(realDt, simDt) {
       }
       if (S.cover > 0 && (d.state === 'floating' || d.state === 'queued')) d.mesh.position.y = -0.6;   // 潜下水躲鹰（要整只没入，斜镜头下才看不到头顶）
       d.help.visible = d.help.visible && !(S.cover > 0);
+      const showCold = d.help.visible && d.warmth < 0.6;   // 冷了：「救我！」换成「❄ 好冷」
+      d.coldLbl.visible = showCold; if (showCold) d.help.visible = false;
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued',
-        panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi });
+        panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi, cold: 1 - d.warmth });
     }
   }
 
@@ -1318,7 +1335,8 @@ const f6 = gui.addFolder('落水与爬回（嘎！接人）');
 f6.add(P, 'babySwim', 0.2, 4, 0.1).name('宝宝游去排队速度').onChange(onCh);
 f6.add(P, 'climbReach', 0.3, 4, 0.1).name('尾巴接人范围').onChange(onCh);
 f6.add(P, 'climbPerQuack', 1, 5, 1).name('每次嘎！接几只').onChange(onCh);
-f6.add(P, 'lostTime', 3, 30, 0.5).name('多久跟丢秒').onChange(onCh);
+f6.add(P, 'lostTime', 3, 30, 0.5).name('水里多久冻透（跟丢）秒').onChange(onCh);
+f6.add(P, 'warmRate', 0.05, 1.5, 0.05).name('背上回暖速度').onChange(onCh);
 f6.add(P, 'hopImpact', 0, 5, 0.1).name('爬上冲击').onChange(onCh);
 f6.add(P, 'scrambleTime', 0, 3, 0.1).name('爬上后往前挪秒').onChange(onCh);
 f6.add(P, 'scrambleStrength', 0, 5, 0.1).name('往前挪力度').onChange(onCh);
@@ -1385,7 +1403,7 @@ addEventListener('resize', () => {
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { S, P, L, COLD_TINT, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
