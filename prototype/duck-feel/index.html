@@ -52,7 +52,7 @@
   已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
-<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
+<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
@@ -104,6 +104,9 @@ const DEFAULTS = {
   lurkerWarn: 0.8,       // 咬之前冒泡预警（秒）：这段时间里捞上来或拐开就没事
   lurkerReach: 0.5,      // 咬中半径
   lurkerBump: 1.6,       // 从妈妈身下穿过时顶一下的力度
+  hawkCircle: 1.6,       // 鹰盘旋多久才俯冲（秒）
+  hawkWarn: 1.0,         // 俯冲预警（秒）：这段时间里嘎！就能护住
+  coverTime: 1.0,        // 嘎！后护崽持续多久：背上的缩成团、水里的潜下去
   artStyle: 'A',         // 美术风格：orig 原版 / A 扁平 / B 绘本 / C 低模
   cameraMode: 'top',     // top = 3D 俯视；chase = 身后追尾
   camHeight: 7,          // 俯视：镜头距离
@@ -295,6 +298,24 @@ function bloop(f0 = 220, vol = 0.18) {
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
   o.connect(g).connect(master); o.start(t); o.stop(t + 0.12);
 }
+function screechSound() {
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), lfo = actx.createOscillator(), lg = actx.createGain(), g = actx.createGain();
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 2;
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(2700, t); o.frequency.exponentialRampToValueAtTime(1300, t + 0.55);
+  lfo.frequency.value = 28; lg.gain.value = 90; lfo.connect(lg).connect(o.frequency);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+  o.connect(f).connect(g).connect(master); o.start(t); lfo.start(t); o.stop(t + 0.62); lfo.stop(t + 0.62);
+}
+function whooshSound() {
+  if (!actx) return;
+  const t = actx.currentTime, len = 0.4, buf = actx.createBuffer(1, actx.sampleRate * len, actx.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length);
+  const src = actx.createBufferSource(); src.buffer = buf;
+  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.5; f.frequency.setValueAtTime(400, t); f.frequency.exponentialRampToValueAtTime(1400, t + len);
+  const g = actx.createGain(); g.gain.value = 0.45;
+  src.connect(f).connect(g).connect(master); src.start(t);
+}
 function chompSound() {
   if (!actx) return;
   const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
@@ -338,7 +359,9 @@ const wake = { active: false, t: 0, side: 1 };
 const hawkShadow = new THREE.Mesh(ART.hawkShadowGeo(), new THREE.MeshBasicMaterial({ color: 0x0b2233, transparent: true, opacity: 0 }));
 hawkShadow.rotation.x = -Math.PI / 2; hawkShadow.position.y = 0.03; scene.add(hawkShadow);
 const hawk = ART.buildHawk(toon); hawk.visible = false; scene.add(hawk);
-const hawkState = { active: false, t: 0, x0: 0, x1: 0 };
+const hawkState = { phase: 'idle', t: 0, side: 1, ang: 0, target: null, from: new THREE.Vector3(), pos: new THREE.Vector3(), heading: 0 };
+const hawkRing = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.26, 24), new THREE.MeshBasicMaterial({ color: 0xe8483b, transparent: true, opacity: 0.85, depthWrite: false }));
+hawkRing.rotation.x = -Math.PI / 2; hawkRing.visible = false; hawkRing.renderOrder = 6; scene.add(hawkRing);
 
 const butterfly = new THREE.Group();
 const bwings = [-1, 1].map(s => {
@@ -545,7 +568,7 @@ function reset() {
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [] });
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
-  wake.active = false; kayak.visible = false; hawkState.active = false; hawk.visible = false; hawkShadow.material.opacity = 0;
+  wake.active = false; kayak.visible = false; hawkState.phase = 'idle'; hawkState.target = null; hawk.visible = false; hawkRing.visible = false; hawkShadow.material.opacity = 0; S.cover = 0;
   spawnDucklings();
   hideBanner();
 }
@@ -572,6 +595,9 @@ function quack() {
   if (!S.started || S.over || S.quackCd > 0) return;
   ensureAudio(); quackSound();
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
+  // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
+  S.cover = P.coverTime;
+  for (const d of ducklings) if (d.state === 'floating' || d.state === 'queued') fx.ring(d.wp.x, d.wp.z, { r0: 0.05, r1: 0.35, life: 0.5, opacity: 0.6 });
   fx.quackPop(head.localToWorld(new THREE.Vector3(0.35, 0.55, -0.2)));
   fx.ring(S.x, S.z - 0.2, { r0: 0.8, r1: 2.4, life: 0.55, opacity: 0.45, drift: 0 });
   // 身后排队的宝宝：离尾巴够近的从后面爬上来
@@ -636,8 +662,8 @@ function updateDucklingOnBack(d, dt) {
     const dx = d.tx - d.x, dz = d.tz - d.z, l = Math.hypot(dx, dz);
     if (l > 0.03) { ax += dx / l * walk; az += dz / l * walk; }
   }
-  // 老鹰：逃离阴影
-  if (hawkState.active && hawkState.t > 1.2) {
+  // 老鹰：盘旋/俯冲时宝宝本能地躲影子（会把自己挤到边上）；嘎！护住时缩成团不乱跑
+  if ((hawkState.phase === 'circle' || hawkState.phase === 'dive') && !(S.cover > 0)) {
     const lx = d.x - (hawkShadow.position.x - S.x), lz = d.z + (hawkShadow.position.z - S.z);
     const l = Math.hypot(lx, lz) || 1;
     if (l < 2.2) { ax += lx / l * 2.2; az += lz / l * 2.2; }
@@ -831,25 +857,7 @@ function updateWorld(dt) {
     if (wake.t > 4) { wake.active = false; kayak.visible = false; S.wakeTimer = rand(12, 18); }
   }
 
-  // 老鹰：先投阴影预警，再扫过
-  S.hawkTimer -= dt * P.hazardRate;
-  if (!hawkState.active && S.hawkTimer <= 0) {
-    hawkState.active = true; hawkState.t = 0; const s = Math.random() < 0.5 ? -1 : 1;
-    hawkState.x0 = S.x + s * 3; hawkState.x1 = S.x - s * 3;
-    hawkShadow.rotation.z = s < 0 ? -Math.PI / 2 : Math.PI / 2;   // 剪影朝飞行方向
-    hawk.rotation.y = s < 0 ? -Math.PI / 2 : Math.PI / 2;
-  }
-  if (hawkState.active) {
-    hawkState.t += dt; const t = hawkState.t;
-    const k = THREE.MathUtils.clamp((t - 1.2) / 1.8, 0, 1);
-    const hx = THREE.MathUtils.lerp(hawkState.x0, hawkState.x1, k);
-    hawkShadow.position.set(hx, 0.03, S.z - 0.1);
-    const grow = Math.min(1, t / 1.2);
-    hawkShadow.scale.setScalar(0.4 + grow * 0.9); hawkShadow.material.opacity = 0.35 * grow * (t > 3 ? Math.max(0, 1 - (t - 3) / 0.5) : 1);
-    hawk.visible = t > 1.2 && t < 3.2; hawk.position.set(hx, 3 + Math.sin(t * 4) * 0.1, S.z - 0.1);
-    for (const w of hawk.userData.wings) w.rotation.z = w.userData.side * Math.sin(t * 9) * 0.35;
-    if (t > 3.5) { hawkState.active = false; hawk.visible = false; hawkShadow.material.opacity = 0; S.hawkTimer = rand(14, 22); }
-  }
+  updateHawk(dt);
 
   updateLurker(dt);
 
@@ -866,6 +874,90 @@ function updateWorld(dt) {
     p.m.scale.setScalar(Math.max(0.01, p.life));
     if (p.life <= 0 || p.m.position.y < -0.1) { p.life = 0; p.m.visible = false; }
   }
+}
+
+// 鹰：影子由远及近 → 盘旋 → 选最暴露的宝宝（水里的优先，其次背上最靠边的）俯冲 → 没护住就叼走
+function hawkTargetPos(d, out) { return d.state === 'onBack' ? d.mesh.getWorldPosition(out) : out.copy(d.wp); }
+function pickHawkTarget() {
+  let best = null, bs = -1;
+  for (const d of ducklings) {
+    let sc = -1;
+    if (d.state === 'floating' || d.state === 'queued') sc = 2 + Math.random() * 0.5;
+    else if (d.state === 'onBack') sc = Math.hypot(d.x / BACK_A, d.z / BACK_B);
+    if (sc > bs) { bs = sc; best = d; }
+  }
+  return best;
+}
+function spawnHawk() {
+  const H = hawkState;
+  Object.assign(H, { phase: 'approach', t: 0, side: Math.random() < 0.5 ? -1 : 1, target: null });
+  H.from.set(S.x + H.side * 4.5, 0, S.z - 3.5); H.pos.copy(H.from); H.ang = Math.atan2(-1, -H.side);
+  hawk.visible = true;
+}
+function updateHawk(dt) {
+  const H = hawkState;
+  hawkRing.visible = false;
+  if (H.phase === 'idle') {
+    S.hawkTimer -= dt * P.hazardRate;
+    if (S.hawkTimer <= 0) spawnHawk();
+    return;
+  }
+  H.t += dt;
+  const prev = tmpV.copy(H.pos);
+  let height = 3.2, shadowS = 1.2, shadowO = 0.35, flap = Math.sin(H.t * 9) * 0.35;
+  const circlePos = (a) => new THREE.Vector3(S.x + Math.cos(a) * 1.9, 0, S.z + Math.sin(a) * 1.5);
+  if (H.phase === 'approach') {   // 由远及近：影子越来越大
+    const k = Math.min(1, H.t / 1.2);
+    H.pos.lerpVectors(H.from, circlePos(H.ang), k * (2 - k));
+    shadowS = 0.4 + 0.8 * k; shadowO = 0.35 * k;
+    if (k >= 1) { H.phase = 'circle'; H.t = 0; screechSound(); }
+  } else if (H.phase === 'circle') {   // 盘旋：给玩家看清楚、做准备
+    H.ang += dt * 2.4 * H.side;
+    H.pos.copy(circlePos(H.ang));
+    flap *= 0.3;
+    if (H.t >= P.hawkCircle) {
+      H.target = pickHawkTarget();
+      if (!H.target) { H.phase = 'leave'; H.t = 0; }
+      else { H.phase = 'dive'; H.t = 0; H.from.copy(H.pos); screechSound(); }
+    }
+  } else if (H.phase === 'dive') {   // 俯冲：影子收向目标，红圈预警
+    const d = H.target, k = Math.min(1, H.t / P.hawkWarn);
+    const tp = hawkTargetPos(d, new THREE.Vector3());
+    H.pos.lerpVectors(H.from, tp, k * k);
+    height = 3.2 * (1 - k * k) + 0.4; shadowS = 1.2 - 0.6 * k; shadowO = 0.35 + 0.25 * k; flap = -0.5;
+    hawkRing.visible = true; hawkRing.position.set(tp.x, d.state === 'onBack' ? tp.y + 0.02 : 0.04, tp.z);
+    hawkRing.scale.setScalar(1 + 0.25 * Math.sin(performance.now() / 60));
+    if (k >= 1) {
+      const exposed = !(S.cover > 0) && ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state);
+      if (exposed) {
+        if (d.state === 'onBack' || d.state === 'hopping') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
+        d.state = 'carried'; d.teeter = 0; S.eaten++;
+        peep(3400, 0.25); screechSound(); splash(tp, 10, 0.6);
+        if (P.slowMoOnFall) S.slowMo = 0.5;
+        H.phase = 'carry';
+      } else {   // 扑空：拉起飞走
+        whooshSound(); fx.ring(tp.x, tp.z, { r0: 0.2, r1: 1.4, life: 0.6, opacity: 0.6, drift: 0 });
+        H.phase = 'leave';
+      }
+      H.t = 0; H.from.copy(H.pos);
+    }
+  } else {   // carry / leave：往外飞出画面
+    const away = Math.atan2(H.pos.z - S.z, H.pos.x - S.x);
+    H.pos.x += Math.cos(away) * 3.5 * dt; H.pos.z += Math.sin(away) * 3.5 * dt - P.riverSpeed * 0.3 * dt;
+    height = 0.4 + H.t * 2.6; shadowO = 0.6 * Math.max(0, 1 - H.t / 1.2); shadowS = 0.6 + H.t * 0.4;
+    flap = Math.sin(H.t * 14) * 0.6;
+    if (H.phase === 'carry' && H.target) {
+      H.target.wp.set(H.pos.x, height - 0.3, H.pos.z);
+      if (H.t > 1.3) { H.target.state = 'eaten'; H.target.mesh.visible = false; H.target.wp.y = -1; }
+    }
+    if (H.t > 1.4) { H.phase = 'idle'; hawk.visible = false; hawkShadow.material.opacity = 0; H.target = null; S.hawkTimer = rand(14, 22); return; }
+  }
+  const dx = H.pos.x - prev.x, dz = H.pos.z - prev.z;
+  if (Math.hypot(dx, dz) > 1e-4) H.heading = Math.atan2(-dx, -dz);
+  hawkShadow.position.set(H.pos.x, 0.03, H.pos.z); hawkShadow.rotation.z = H.heading;
+  hawkShadow.scale.setScalar(shadowS); hawkShadow.material.opacity = shadowO;
+  hawk.position.set(H.pos.x, height + Math.sin(H.t * 4) * 0.08, H.pos.z); hawk.rotation.y = H.heading;
+  for (const w of hawk.userData.wings) w.rotation.z = w.userData.side * flap;
 }
 
 // 水下阴影：出现 → 追水里最近的宝宝（没有就从妈妈身下穿过顶一下）→ 冒泡预警 → 咬
@@ -973,7 +1065,8 @@ function syncVisuals(realDt, simDt) {
   jaw.rotation.x = -0.5 * q;
   M.tail.rotation.y = Math.sin(t * 2.6) * 0.12 + S.rollV * 0.03;
   M.crest.rotation.x = Math.sin(t * 3.1) * 0.06 - q * 0.2;
-  for (const w of wings) w.rotation.z = w.userData.side * (S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05);
+  for (const w of wings) w.rotation.z = w.userData.side * (S.flap > 0.25 ? Math.abs(Math.sin(S.flap * 25)) * 1.1
+    : S.cover > 0 ? 0.6 + Math.sin(t * 30) * 0.04 : S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05);   // 护崽时半张翅膀
 
   for (const d of ducklings) {
     d.mouth = (d.mouth || 0) - realDt * 5; d.land = (d.land || 0) - realDt * 4;
@@ -996,7 +1089,7 @@ function syncVisuals(realDt, simDt) {
       // 越靠近边缘越慌：啾声更高更急、翅芽乱扑
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), moving: sp > 0.05 && !d.sleeping, sleeping: d.sleeping, panic: d.teeter > 0 || r > 0.85,
-        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi });
+        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0 });
       d.peepCd -= simDt;
       if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
       else if (!d.sleeping && Math.random() < simDt * 0.12 * P.chibi) { peep(2300 + Math.random() * 600, 0.025); d.mouth = 1; }   // 闲着偶尔叽一声
@@ -1011,8 +1104,10 @@ function syncVisuals(realDt, simDt) {
         d.mesh.position.y = 0.02 + Math.sin(t * 4 + d.queueIdx) * 0.02;
         d.mesh.children[0].rotation.z = 0;
       }
+      if (S.cover > 0 && (d.state === 'floating' || d.state === 'queued')) d.mesh.position.y = -0.6;   // 潜下水躲鹰（要整只没入，斜镜头下才看不到头顶）
+      d.help.visible = d.help.visible && !(S.cover > 0);
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued',
-        panic: d.state === 'falling' || d.state === 'floating', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi });
+        panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi });
     }
   }
 
@@ -1090,6 +1185,7 @@ function frame(now) {
     S.quackCd = Math.max(0, S.quackCd - simDt);
     S.flap = Math.max(0, S.flap - simDt);
     S.sink = Math.max(0, S.sink - simDt);
+    S.cover = Math.max(0, (S.cover || 0) - simDt);
   }
   syncVisuals(realDt, simDt);
   renderer.render(scene, camera);
@@ -1145,6 +1241,11 @@ f7.add(P, 'lurkerWarn', 0.2, 2, 0.05).name('冒泡预警秒').onChange(onCh);
 f7.add(P, 'lurkerReach', 0.2, 1.2, 0.05).name('咬中半径').onChange(onCh);
 f7.add(P, 'lurkerBump', 0, 5, 0.1).name('身下顶一下').onChange(onCh);
 f7.add({ go() { if (S.started && L.phase === 'idle') spawnLurker(); } }, 'go').name('🐢 立刻召唤');
+const f8 = gui.addFolder('空中威胁（鹰）');
+f8.add(P, 'hawkCircle', 0.3, 4, 0.1).name('盘旋秒').onChange(onCh);
+f8.add(P, 'hawkWarn', 0.3, 2.5, 0.05).name('俯冲预警秒').onChange(onCh);
+f8.add(P, 'coverTime', 0.2, 2.5, 0.05).name('嘎！护崽秒').onChange(onCh);
+f8.add({ go() { if (S.started && hawkState.phase === 'idle') spawnHawk(); } }, 'go').name('🦅 立刻召唤');
 const f5 = gui.addFolder('镜头与特效');
 f5.add(P, 'cameraMode', { '3D 俯视': 'top', '身后追尾': 'chase' }).name('视角').onChange(onCh);
 f5.add(P, 'camHeight', 4, 18, 0.5).name('俯视：镜头距离').onChange(onCh);
@@ -1174,7 +1275,7 @@ addEventListener('resize', () => {
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { S, P, L, H: hawkState, spawnHawk, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
