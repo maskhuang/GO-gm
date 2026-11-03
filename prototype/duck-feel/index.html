@@ -23,6 +23,15 @@
     background: rgba(18,50,74,.35); color: #fff; text-align: center; font-size: 18px; line-height: 1.8; cursor: pointer; }
   #banner .card { background: rgba(18,50,74,.85); padding: 20px 28px; border-radius: 16px; max-width: 420px; margin: 16px; }
   #banner h1 { margin: 0 0 6px; font-size: 26px; }
+  #banner .card { max-width: 480px; }
+  .notes { display: flex; gap: 10px; justify-content: center; margin: 12px 0 4px; flex-wrap: wrap; }
+  .note { flex: 1 1 190px; max-width: 220px; background: #fbf4e2; color: #3a2e22; border-radius: 6px; padding: 8px 10px 10px; text-align: left;
+    font-size: 13px; line-height: 1.55; box-shadow: 0 3px 0 rgba(0,0,0,.18); transform: rotate(-1.2deg); border: 2px solid #3a2e22; }
+  .note:nth-child(2) { transform: rotate(1.4deg); }
+  .note .nt { font-weight: bold; font-size: 14px; margin-bottom: 2px; }
+  .note .nt .ic { font-size: 18px; margin-right: 4px; }
+  .note.new .nt::after { content: '新'; margin-left: 6px; font-size: 11px; background: #e8483b; color: #fff; border-radius: 4px; padding: 0 4px; vertical-align: 2px; }
+  .notecount { font-size: 12px; opacity: .75; }
   .hidden { display: none !important; }
   #paper { position: fixed; inset: 0; pointer-events: none; mix-blend-mode: multiply; opacity: 0.6; display: none; z-index: 1; }
   #hud, #help { z-index: 2; } #banner { z-index: 3; }
@@ -738,7 +747,7 @@ const S = {
   dist: 0, quackCd: 0, flap: 0, saves: 0, timeScale: 1, slowMo: 0,
   logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, paused: false, started: false, over: false,
   rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0,
-  queue: [], xHistory: [],
+  queue: [], xHistory: [], seen: new Set(),
 };
 let best = null; try { best = JSON.parse(localStorage.getItem('duckShiftBestHome') || 'null'); } catch (e) {}   // { home, stars }
 const mouse = { x: 0, y: 0 };
@@ -746,7 +755,7 @@ const mouse = { x: 0, y: 0 };
 function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
-    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0 });
+    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0, seen: new Set() });
   endRapids(); resetDirector();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
@@ -1170,6 +1179,7 @@ function resetDirector() {   // 每天开始：已经登场过的威胁保留（
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
 const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on || RN.on || HR.phase !== 'idle';
 function triggerEvent(ev, first) {
+  S.seen.add(ev);
   const hintMsg = first ? HINT[ev] : null, ms = 4200;
   if (ev === 'kayak') { spawnKayak(); if (hintMsg) hint(hintMsg, ms); }
   else if (ev === 'orphan') hintMsg ? spawnOrphan(hintMsg, ms) : spawnOrphan();
@@ -1265,6 +1275,39 @@ function updateArrival(dt) {
   if (allHome && !S.resultT) S.resultT = S.arriveT + 1.4;
   if (S.resultT && S.arriveT >= S.resultT && !S.over) showResults();
 }
+// ---------- 野外笔记：结算时翻出一两张真实的知识卡（和这一天遇到的事有关），收集进图鉴 ----------
+const NOTES = {
+  nest:    ['🌳', '树洞里的家', '普通秋沙鸭在河边的树洞里筑巢。雏鸭出壳一两天，就要从几米高的洞口跳下来跟妈妈下水——它们轻得像个绒球，落地也摔不坏。'],
+  back:    ['🦆', '搭便车', '秋沙鸭的雏鸭常爬到妈妈背上歇脚、取暖。䴙䴘和潜鸟也会这样驮着孩子游。'],
+  rain:    ['🌧', '怕冷的绒毛', '刚出壳的雏鸭又小、绒毛又不太防水，很容易失温，冷雨天只能挤在妈妈身下。连着几天的冷雨，是雏鸭夭折的常见原因。'],
+  orphan:  ['🐥', '鸭子托儿所', '秋沙鸭会「托儿」：几窝雏鸭合成一大群，跟着一只或几只雌鸭，有时一群几十只。走散的雏鸭混进别家，也常被接纳。'],
+  lurker:  ['🐢', '水下的嘴', '鳄龟、狗鱼这样的大家伙会从水下咬住游泳的雏鸭。待在妈妈背上，比泡在水里安全。'],
+  rapids:  ['🌊', '急流里的潜水鸭', '秋沙鸭爱清澈湍急的河，是潜水捉鱼的好手。雏鸭跟着妈妈顺流而下，很早就要对付急流。'],
+  hawk:    ['🦅', '抬头看', '猛禽从空中扑下来时，母鸭会发出警报。雏鸭一听到，立刻贴近妈妈，或者一头扎进水里。'],
+  heron:   ['🪶', '一动不动的猎手', '苍鹭能在浅水里一动不动站很久，等猎物游近再闪电般出嘴。它主要吃鱼和蛙，路过的雏鸭也不放过。'],
+  gull:    ['🐦', '湖边的海鸥', '大型海鸥会在开阔的湖面上低空掠过，抓水面上的雏鸭。大湖里吃的多，危险也多。'],
+  kayak:   ['🛶', '离远一点', '船和人靠得太近，鸭群会受惊四散，走散的雏鸭很难再找回妈妈。遇到鸭妈妈带孩子，最好绕远一点。'],
+  dive:    ['🤿', '一周就会潜水', '秋沙鸭的雏鸭出壳没几天就能潜水，自己捉水里的小虫。遇到危险时，潜水就是它们的逃生术。'],
+  sawbill: ['🐟', '锯齿嘴', '秋沙鸭的嘴细长，边缘有一排向后的「锯齿」，能牢牢咬住滑溜溜的鱼——英文俗名就叫 sawbill（锯嘴鸭）。'],
+  fledge:  ['🪽', '离会飞还早', '头两周过去，宝宝们能自己保暖了，但离会飞还早：普通秋沙鸭的雏鸭大约要两个月才飞得起来。'],
+  odds:    ['💔', '不是每只都能长大', '野外的雏鸭很难全部长大：在很多鸭类里，一窝能活到会飞的往往不到一半。'],
+};
+const DAY_NOTES = [['nest', 'back'], ['rain', 'rapids'], ['dive', 'heron'], ['sawbill', 'gull']];
+let notesGot = []; try { notesGot = JSON.parse(localStorage.getItem('duckShiftNotes') || '[]'); } catch (e) {}
+function fieldNotes(extra = []) {
+  // 候选：今天遇到的事 → 结局相关 → 这一天的年龄相关；没收集过的优先
+  const cand = [...extra, ...[...S.seen].filter(k => NOTES[k]), ...(S.eaten ? ['odds'] : []), ...DAY_NOTES[Math.min(C.day, DAY_NOTES.length - 1)], 'back'];
+  const uniq = [...new Set(cand)];
+  const pick = [...uniq.filter(k => !notesGot.includes(k)), ...uniq.filter(k => notesGot.includes(k))].slice(0, 2);
+  const html = pick.map(k => {
+    const [ic, title, text] = NOTES[k], isNew = !notesGot.includes(k);
+    if (isNew) notesGot.push(k);
+    return `<div class="note${isNew ? ' new' : ''}"><div class="nt"><span class="ic">${ic}</span>${title}</div>${text}</div>`;
+  }).join('');
+  try { localStorage.setItem('duckShiftNotes', JSON.stringify(notesGot)); } catch (e) {}
+  return `<div class="notes">${html}</div><div class="notecount">野外笔记 ${notesGot.length} / ${Object.keys(NOTES).length}</div>`;
+}
+
 function showResults() {
   S.over = true;
   const home = S.homeCount || 0, today = curDay();
@@ -1278,6 +1321,8 @@ function showResults() {
     C.pending = 'next'; C.nextRoster = survivors;
     showBanner(`<h1 style="margin:0">🏡 第 ${today.age} 天 · 到家啦</h1>${dayLine}
       <hr style="border:0;border-top:1px solid rgba(255,255,255,.25);margin:14px 0">
+      ${fieldNotes()}
+      <hr style="border:0;border-top:1px solid rgba(255,255,255,.25);margin:14px 0">
       <b>第 ${next.age} 天</b><br><span style="font-size:15px">${next.intro}</span><br><br><b>点击出发</b>`);
   } else {
     const startN = KINDS.length, stars = home >= startN ? 3 : home >= 3 ? 2 : home >= 1 ? 1 : 0;
@@ -1287,7 +1332,7 @@ function showResults() {
     showBanner(`<h1 style="margin:0">🦆 宝宝们长大了！</h1><div style="font-size:34px;letter-spacing:6px;color:#ffd24f">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
       <b>${home}</b> 只宝宝长到了能自己保暖、自己觅食的年纪${survivors.some(k => k.adopted) ? `<br>其中 ${survivors.filter(k => k.adopted).length} 只是路上收养的` : ''}<br>
       <span style="font-size:14px">最后一天：${dayLine}</span><br>
-      ${isBest ? '🎉 新纪录！' : `最好成绩：${best.home} 只长大`}<br><br><b>点击开始新的旅程</b>`);
+      ${isBest ? '🎉 新纪录！' : `最好成绩：${best.home} 只长大`}${fieldNotes(['fledge'])}<br><b>点击开始新的旅程</b>`);
   }
 }
 
@@ -1861,8 +1906,8 @@ function syncVisuals(realDt, simDt) {
     S.over = true; C.pending = 'retry';
     const lost = (S.eaten ? `<br>被叼走了 ${S.eaten} 只 😢` : '') + (S.adopted ? `<br>一路收养了 ${S.adopted} 只迷路的宝宝 💛` : '');
     showBanner(S.eaten === ducklings.filter(d => d.state !== 'stray').length
-      ? `<b>宝宝们都被叼走了……</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米<br><br>点击重来第 ${curDay().age} 天`
-      : `<b>全军落水！</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}<br><br>点击重来第 ${curDay().age} 天`);
+      ? `<b>宝宝们都被叼走了……</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米${fieldNotes(['odds'])}<br>点击重来第 ${curDay().age} 天`
+      : `<b>全军落水！</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}${fieldNotes(['rain'])}<br>点击重来第 ${curDay().age} 天`);
   }
 }
 
