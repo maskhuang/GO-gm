@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Duck Shift 手感原型</title>
+<title>Duck Shift</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3e8;
     font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
@@ -71,19 +71,14 @@
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
-<div id="banner"><div class="card">
-  <h1>🦆 Duck Shift</h1>
-  <div id="bannerText">你是鸭妈妈，要陪宝宝们走过最危险的头两周：<br>从它们 1 天大，到能自己保暖、自己觅食。<br>
-  <b>鼠标</b> 移动重心　<b>Shift</b> 嘎！<br><br>
-  <span style="font-size:15px;line-height:1.7">嘎！会把背上的宝宝叫回中间，<br>让身后游着的宝宝从尾巴爬上来，<br>也能让大家躲开扑下来的鹰。<br>
-  听宝宝的叫声、看它们的样子：<br>慌张乱扑 = 快掉了　发蓝发抖 = 冻坏了<br>冠羽竖起来 = 又能嘎了　天色变暖 = 快到家了</span><br><br><b>点击开始</b></div>
-</div></div>
 
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
 import * as ART from './art.js?v=9';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
+import { createNotebook, createGlyph } from './notebook.js?v=8';
+const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
 const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
 // ---------- 可调参数 ----------
@@ -567,6 +562,8 @@ const gull = ART.buildGull(toon); gull.visible = false; scene.add(gull);
 const gullShadow = new THREE.Mesh(ART.hawkShadowGeo(), new THREE.MeshBasicMaterial({ color: 0x0b2233, transparent: true, opacity: 0 }));
 gullShadow.rotation.x = -Math.PI / 2; gullShadow.position.y = 0.03; scene.add(gullShadow);
 const rain = ART.createRain(scene);
+const book = createNotebook(scene, camera);   // 标题/结算/暂停：镜头前的一页笔记本
+const glyph = createGlyph(scene);             // 教学图标
 const { group: tangle, trail: lineTrail } = ART.buildTangle(toon); tangle.visible = false; scene.add(tangle, lineTrail);
 const hatchFx = ART.createHatch(scene);
 const hen = ART.buildHen(toon); hen.visible = false; scene.add(hen);
@@ -798,9 +795,11 @@ addEventListener('pointermove', e => {
   mouse.y = THREE.MathUtils.clamp(-((e.clientY / innerHeight) * 2 - 1), -1, 1);
 });
 addEventListener('keydown', e => {
+  if (book.visible) { if (!e.repeat && (e.key === 'Shift' || e.code === 'Space' || e.code === 'Enter')) { onContinue(); e.preventDefault(); } return; }   // 翻过这一页
   if (e.key === 'Shift') { if (!e.repeat) { quack(); S.holdT = 0; } S.shiftDown = true; }
+  else if (!DEV && /^(KeyR|KeyH|KeyV|KeyF|Digit[1-4])$/.test(e.code)) return;   // 开发快捷键
   else if (e.code === 'KeyR') { if (S.over) proceed(); else { C.roster = C.startRoster.slice(); reset(); S.started = true; } }   // R：重来这一天
-  else if (e.code === 'Space') { S.paused = !S.paused; e.preventDefault(); }
+  else if (e.code === 'Space') { if (S.started && !S.over && !S.arrived) { S.paused = true; S.shiftDown = false; book.show(pausePage()); } e.preventDefault(); }
   else if (e.code === 'KeyH') gui._hidden ? gui.show() : gui.hide();
   else if (e.code === 'KeyV') { const ks = Object.keys(POST_MODES); P.post = ks[(ks.indexOf(P.post) + 1) % ks.length]; saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); alertless('画面风格：' + POST_NAMES[P.post]); }
   else if (e.code === 'KeyF') { P.focus = !P.focus; applyFocus(); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
@@ -808,14 +807,36 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { if (e.key === 'Shift') S.shiftDown = false; });
 addEventListener('blur', () => { S.shiftDown = false; });
-const banner = document.getElementById('banner'), bannerText = document.getElementById('bannerText');
-banner.addEventListener('click', () => { ensureAudio(); if (S.over) proceed(); S.started = true; hideBanner(); });
-function hideBanner() { banner.classList.add('hidden'); }
-function showBanner(html) { bannerText.innerHTML = html; banner.classList.remove('hidden'); }
+// 笔记本那一页：点一下 / 按 Shift、空格、回车 翻过去
+function onContinue() {
+  if (!book.visible) return;
+  ensureAudio();
+  if (S.paused && S.started && !S.over) { S.paused = false; book.hide(); return; }
+  if (S.over) proceed();
+  S.started = true; book.hide();
+}
+renderer.domElement.addEventListener('pointerdown', () => onContinue());
+function hideBanner() { book.hide(); }
+const plain = (html) => html.replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '');
+function titlePage() {
+  return { big: 'Duck Shift', sub: "A Mother Duck's First Two Weeks",
+    lines: ["Your ducklings hatched yesterday. Carry them down the river until they're grown.", ...(best ? [`Best run: ${best.home} grew up`] : [])],
+    footer: '(click to begin)' };
+}
+function familyDoodles() {   // 一家子的涂鸦：到家/还在 = 黄，收养的 = 麻黄，没了 = 虚线
+  return ducklings.filter(d => d.state !== 'stray').map(d => ({ kind: ['eaten', 'carried'].includes(d.state) ? 'lost' : d.roster?.adopted ? 'adopt' : 'home' }));
+}
+function pausePage() {
+  const onB = ducklings.filter(d => d.state === 'onBack').length, inW = ducklings.filter(d => ['floating', 'queued', 'falling', 'hopping'].includes(d.state)).length;
+  return { title: `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
+    lines: [`${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home. ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`],
+    footer: '(click or press Space to carry on)', scale: 0.85, compact: true };
+}
 
 // ---------- 装受伤（拟伤表演）：按住 Shift，妈妈拖着一只「断」翅在水面扑腾大叫，把所有天敌的注意力引到自己身上 ----------
 // 依据：很多雌鸭遇到天敌时会这样「拟伤」，引开天敌让雏鸭躲起来。代价：扑腾得很凶，背上的宝宝站不稳；而且不能常用
 function startDisplay() {
+  if (TUT.cur === 'hold') learn('hold');
   S.display = P.displayTime; S.displayCd = P.displayCooldown; S.shakeT = 0; S.seen.add('display');
   quackSound(); setTimeout(quackSound, 260); setTimeout(quackSound, 560);
   // 天敌都被吸引过来、放弃眼前的目标
@@ -837,7 +858,7 @@ function updateDisplay(dt) {
 
 function quack() {
   if (!S.started || S.over || S.arrived || S.quackCd > 0) return;
-  ensureAudio(); quackSound();
+  ensureAudio(); quackSound(); TUT.quacked = true;
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; bloop(330, 0.12); }   // 妈妈凶回去：别家母鸭退了
   // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
@@ -1195,13 +1216,13 @@ function updateWorld(dt) {
 // 依据：雏鸭 14～20 天才能自己保暖；第一周就会潜水；秋沙鸭一家会顺流迁往更大的水域
 const DAYS = [
   { age: 1, g: 0, len: 0.75, unlock: [{ at: 18, ev: 'kayak' }, { at: 32, ev: 'orphan' }, { at: 55, ev: 'lurker' }],
-    intro: '宝宝们才 1 天大，又小又怕冷，全靠你驮着。' },
+    intro: 'The ducklings are just one day old: tiny, easily chilled, and counting on you to carry them.' },
   { age: 3, g: 0.33, len: 0.9, unlock: [{ at: 24, ev: 'rapids' }, { at: 44, ev: 'line' }, { at: 62, ev: 'rain' }],
-    intro: '宝宝们 3 天大了，游得快了一点，也没那么怕冷了。<br>今天这段河有急流和落差，天也阴了，可能要下雨。<br><br>新本领：<b>按住 Shift 不放</b>，妈妈会装作受伤在水面扑腾，<br>把天敌都引到自己身上——但扑腾得很晃，好一阵才能再用。' },
+    intro: 'Three days old now: a little faster, a little hardier.<br>Today the river has rapids and a drop, and the sky is clouding over. It may rain.' },
   { age: 7, g: 0.66, len: 1.05, unlock: [{ at: 24, ev: 'hawk' }, { at: 40, ev: 'hatch' }, { at: 58, ev: 'heron' }],
-    intro: '宝宝们 7 天大了，已经会潜水：鹰扑下来时，水里的会自己躲。<br>可它们也更重了，背上越来越挤，有的还想自己下水游。<br>这段河岸边的浅水里站着苍鹭；傍晚河面上会有成群的蜉蝣。' },
+    intro: 'A week old, and they can dive: when a hawk swoops, the ones in the water hide on their own.<br>They are heavier, your back is getting crowded, and some want to swim by themselves.<br>Herons stand in the shallows along this stretch, and mayflies swarm in the evening.' },
   { age: 12, g: 1, len: 1.2, unlock: [{ at: 16, ev: 'gull' }, { at: 40, ev: 'rival' }],
-    intro: '宝宝们 12 天大了，大半时间自己游，你更像是在领着它们走。<br>最后一段：去下游的大湖，湖边有海鸥，还有别家带着孩子的鸭妈妈。' },
+    intro: 'Twelve days old. They swim on their own most of the time; you are leading more than carrying.<br>Last leg: down to the big lake, with its gulls and other duck families.' },
 ];
 const C = { day: 0, roster: [], startRoster: [], nextRoster: null, pending: null };   // roster：家里有哪些宝宝（跨天保留）
 const curDay = () => DAYS[Math.min(C.day, DAYS.length - 1)];
@@ -1346,24 +1367,24 @@ function updateArrival(dt) {
 }
 // ---------- 野外笔记：结算时翻出一两张真实的知识卡（和这一天遇到的事有关），收集进图鉴 ----------
 const NOTES = {
-  nest:    ['🌳', '树洞里的家', '普通秋沙鸭在河边的树洞里筑巢。雏鸭出壳一两天，就要从几米高的洞口跳下来跟妈妈下水——它们轻得像个绒球，落地也摔不坏。'],
-  back:    ['🦆', '搭便车', '秋沙鸭的雏鸭常爬到妈妈背上歇脚、取暖。䴙䴘和潜鸟也会这样驮着孩子游。'],
-  rain:    ['🌧', '怕冷的绒毛', '刚出壳的雏鸭又小、绒毛又不太防水，很容易失温，冷雨天只能挤在妈妈身下。连着几天的冷雨，是雏鸭夭折的常见原因。'],
-  orphan:  ['🐥', '鸭子托儿所', '秋沙鸭会「托儿」：几窝雏鸭合成一大群，跟着一只或几只雌鸭，有时一群几十只。走散的雏鸭混进别家，也常被接纳。'],
-  lurker:  ['🐢', '水下的嘴', '鳄龟、狗鱼这样的大家伙会从水下咬住游泳的雏鸭。待在妈妈背上，比泡在水里安全。'],
-  rapids:  ['🌊', '急流里的潜水鸭', '秋沙鸭爱清澈湍急的河，是潜水捉鱼的好手。雏鸭跟着妈妈顺流而下，很早就要对付急流。'],
-  hawk:    ['🦅', '抬头看', '猛禽从空中扑下来时，母鸭会发出警报。雏鸭一听到，立刻贴近妈妈，或者一头扎进水里。'],
-  heron:   ['🪶', '一动不动的猎手', '苍鹭能在浅水里一动不动站很久，等猎物游近再闪电般出嘴。它主要吃鱼和蛙，路过的雏鸭也不放过。'],
-  gull:    ['🐦', '湖边的海鸥', '大型海鸥会在开阔的湖面上低空掠过，抓水面上的雏鸭。大湖里吃的多，危险也多。'],
-  kayak:   ['🛶', '离远一点', '船和人靠得太近，鸭群会受惊四散，走散的雏鸭很难再找回妈妈。遇到鸭妈妈带孩子，最好绕远一点。'],
-  dive:    ['🤿', '一周就会潜水', '秋沙鸭的雏鸭出壳没几天就能潜水，自己捉水里的小虫。遇到危险时，潜水就是它们的逃生术。'],
-  sawbill: ['🐟', '锯齿嘴', '秋沙鸭的嘴细长，边缘有一排向后的「锯齿」，能牢牢咬住滑溜溜的鱼——英文俗名就叫 sawbill（锯嘴鸭）。'],
-  fledge:  ['🪽', '离会飞还早', '头两周过去，宝宝们能自己保暖了，但离会飞还早：普通秋沙鸭的雏鸭大约要两个月才飞得起来。'],
-  display: ['🎭', '装受伤', '天敌靠近时，不少雌鸭会拖着一只翅膀在水面扑腾、装作受伤，把天敌引向自己，让孩子们趁机躲起来。'],
-  hatch:   ['🦟', '虫子大餐', '初夏的河面上常有成群的蜉蝣羽化。雏鸭头几周主要吃水面和水里的小虫，这是它们长身体最要紧的食物。'],
-  rival:   ['🦆', '别家的妈妈', '带着孩子的雌鸭护崽很凶，会追啄靠近的陌生雏鸭，甚至把它们按进水里。可也有雌鸭会收留走散的宝宝——遇上哪种，看运气。'],
-  line:    ['🎣', '废弃的钓线', '被丢掉的钓鱼线在水里几乎看不见，水鸟的脚和脖子常被缠住，严重的会因此丧命。钓完鱼，记得把线带走。'],
-  odds:    ['💔', '不是每只都能长大', '野外的雏鸭很难全部长大：在很多鸭类里，一窝能活到会飞的往往不到一半。'],
+  nest:    ['🌳', 'A Home in a Tree Hole', 'Common mergansers nest in tree holes by the river. A day or two after hatching, the ducklings leap from the entrance, often several metres up, and follow mum to the water. They are so light and fluffy they just bounce.'],
+  back:    ['🦆', 'Hitching a Ride', "Merganser ducklings often climb onto their mother's back to rest and warm up. Grebes and loons carry their chicks the same way."],
+  rain:    ['🌧', "Down Isn't Waterproof", "New ducklings are tiny and their down isn't very waterproof yet, so they chill fast and huddle under mum in cold rain. Days of cold rain are a common cause of duckling deaths."],
+  orphan:  ['🐥', 'Duck Daycare', 'Mergansers form crèches: several broods merge into one big group led by one or a few females, sometimes dozens of ducklings. A lost duckling that joins another family is often accepted.'],
+  lurker:  ['🐢', 'Jaws from Below', "Snapping turtles and big pike grab swimming ducklings from underneath. Riding on mum's back is safer than paddling."],
+  rapids:  ['🌊', 'Ducks of Fast Rivers', 'Mergansers love clear, fast-flowing rivers and are expert diving fishers. Their ducklings follow mum downstream and face rapids early in life.'],
+  hawk:    ['🦅', 'Look Up!', 'When a bird of prey swoops in, the mother gives an alarm call. The ducklings instantly press close to her, or dive.'],
+  heron:   ['🪶', 'The Patient Hunter', "A heron can stand motionless in the shallows for ages, then strike like lightning. It mostly eats fish and frogs, but won't pass up a duckling."],
+  gull:    ['🐦', 'Gulls on the Lake', 'Large gulls skim low over open water and snatch ducklings from the surface. Big lakes have more food, and more danger.'],
+  kayak:   ['🛶', 'Give Them Space', 'Boats and people that come too close can scatter a brood, and a separated duckling may never find its mother again. If you see a duck family, take the long way round.'],
+  dive:    ['🤿', 'Diving at One Week', 'Merganser ducklings dive within days of hatching, catching insects underwater. Diving is also how they escape danger.'],
+  sawbill: ['🐟', 'Saw-Toothed Bill', "A merganser's bill is long and thin, lined with backward-pointing serrations that grip slippery fish. Hence the nickname \"sawbill\"."],
+  fledge:  ['🪽', 'Not Flying Yet', 'After two weeks the ducklings can keep themselves warm, but flying is still far off: common merganser ducklings take about two months to fly.'],
+  odds:    ['💔', 'Not Every Duckling Makes It', 'In the wild, few broods survive intact. For many duck species, fewer than half the ducklings in a brood live long enough to fly.'],
+  line:    ['🎣', 'Discarded Fishing Line', 'Lost fishing line is almost invisible in water. Waterbirds get it wrapped around their legs and necks, sometimes fatally. Always take your line home.'],
+  rival:   ['🦆', "Someone Else's Mum", 'A female with her own brood can be fierce: she may chase and peck strange ducklings, even push them under. Other females adopt lost ducklings instead. It depends who you meet.'],
+  hatch:   ['🦟', 'Bug Feast', 'In early summer, mayflies hatch in swarms over rivers. For their first weeks ducklings eat mostly insects from the water and its surface, the key food for growing fast.'],
+  display: ['🎭', 'Playing Hurt', 'When a predator comes near, many mother ducks flap across the water dragging a "broken" wing, luring it toward themselves while the ducklings hide.'],
 };
 const DAY_NOTES = [['nest', 'back'], ['rain', 'rapids'], ['dive', 'heron'], ['sawbill', 'gull']];
 let notesGot = []; try { notesGot = JSON.parse(localStorage.getItem('duckShiftNotes') || '[]'); } catch (e) {}
@@ -1372,13 +1393,9 @@ function fieldNotes(extra = []) {
   const cand = [...extra, ...[...S.seen].filter(k => NOTES[k]), ...(S.eaten ? ['odds'] : []), ...DAY_NOTES[Math.min(C.day, DAY_NOTES.length - 1)], 'back'];
   const uniq = [...new Set(cand)];
   const pick = [...uniq.filter(k => !notesGot.includes(k)), ...uniq.filter(k => notesGot.includes(k))].slice(0, 2);
-  const html = pick.map(k => {
-    const [ic, title, text] = NOTES[k], isNew = !notesGot.includes(k);
-    if (isNew) notesGot.push(k);
-    return `<div class="note${isNew ? ' new' : ''}"><div class="nt"><span class="ic">${ic}</span>${title}</div>${text}</div>`;
-  }).join('');
+  const notes = pick.map(k => { const isNew = !notesGot.includes(k); if (isNew) notesGot.push(k); return [NOTES[k], isNew]; });
   try { localStorage.setItem('duckShiftNotes', JSON.stringify(notesGot)); } catch (e) {}
-  return `<div class="notes">${html}</div><div class="notecount">野外笔记 ${notesGot.length} / ${Object.keys(NOTES).length}</div>`;
+  return { notes, count: `Field notes ${notesGot.length} / ${Object.keys(NOTES).length}` };
 }
 
 function showResults() {
@@ -1387,25 +1404,22 @@ function showResults() {
   const survivors = ducklings.filter(d => d.state === 'home').map(d => d.roster);
   const adoptedToday = ducklings.filter(d => d.state === 'home' && d.roster.adopted && !C.startRoster.includes(d.roster)).length;
   const mm = Math.floor(S.time / 60), ss = String(Math.floor(S.time % 60)).padStart(2, '0');
-  const dayLine = `带回家 <b>${home}</b> 只宝宝${adoptedToday ? `（今天收养了 ${adoptedToday} 只）` : ''}${S.fed ? ` · 吃到 ${S.fed} 只虫` : ''}<br>
-    ${S.eaten ? `被叼走 ${S.eaten} 只 · ` : ''}救回 ${S.saves} 次 · 捞回 ${S.catches} 次 · 用时 ${mm}:${ss}`;
+  const stats = [`Brought home ${home} duckling${home === 1 ? '' : 's'}${adoptedToday ? ` (${adoptedToday} adopted today)` : ''}${S.fed ? `, who ate ${S.fed} bugs on the way` : ''}.`,
+    `${S.eaten ? `${S.eaten} taken by predators. ` : ''}Caught at the edge ${S.saves}×, scooped from the water ${S.catches}×, time ${mm}:${ss}.`];
   if (C.day < DAYS.length - 1) {
     const next = DAYS[C.day + 1];
     C.pending = 'next'; C.nextRoster = survivors;
-    showBanner(`<h1 style="margin:0">🏡 第 ${today.age} 天 · 到家啦</h1>${dayLine}
-      <hr style="border:0;border-top:1px solid rgba(255,255,255,.25);margin:14px 0">
-      ${fieldNotes()}
-      <hr style="border:0;border-top:1px solid rgba(255,255,255,.25);margin:14px 0">
-      <b>第 ${next.age} 天</b><br><span style="font-size:15px">${next.intro}</span><br><br><b>点击出发</b>`);
+    book.show({ title: `Day ${today.age} · Home Safe`, ducks: familyDoodles(), lines: stats, ...fieldNotes(),
+      next: { title: `Next · Day ${next.age}`, text: plain(next.intro) }, footer: '(click to set off)' });
   } else {
     const startN = KINDS.length, stars = home >= startN ? 3 : home >= 3 ? 2 : home >= 1 ? 1 : 0;
     const isBest = !best || home > best.home;
     if (isBest) { best = { home, stars }; try { localStorage.setItem('duckShiftBestHome', JSON.stringify(best)); } catch (e) {} }
     C.pending = 'new';
-    showBanner(`<h1 style="margin:0">🦆 宝宝们长大了！</h1><div style="font-size:34px;letter-spacing:6px;color:#ffd24f">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
-      <b>${home}</b> 只宝宝长到了能自己保暖、自己觅食的年纪${survivors.some(k => k.adopted) ? `<br>其中 ${survivors.filter(k => k.adopted).length} 只是路上收养的` : ''}<br>
-      <span style="font-size:14px">最后一天：${dayLine}</span><br>
-      ${isBest ? '🎉 新纪录！' : `最好成绩：${best.home} 只长大`}${fieldNotes(['fledge'])}<br><b>点击开始新的旅程</b>`);
+    const adoptN = survivors.filter(k => k.adopted).length;
+    book.show({ title: "They've Grown Up!", stars, ducks: familyDoodles(),
+      lines: [`${home} duckling${home === 1 ? '' : 's'} made it to the age where they can keep warm and feed themselves${adoptN ? `, ${adoptN} of them adopted along the way` : ''}.`, isBest ? 'Your best run yet!' : `Best run: ${best.home} grew up.`],
+      ...fieldNotes(['fledge']), footer: '(click to play again)' });
   }
 }
 
@@ -1586,6 +1600,7 @@ function spawnLine() {
   tangle.visible = true; tangle.rotation.y = rand(0, Math.PI * 2);
 }
 function freeLine() {
+  if (TUT.cur === 'kick') learn('kick');
   FL.phase = 'free'; FL.t = 0; lineTrail.visible = false;
   splash(new THREE.Vector3(S.x + FL.side * 0.4, 0, S.z + 0.9), 10, 0.6); fx.sparkle(new THREE.Vector3(S.x + FL.side * 0.4, 0.4, S.z + 0.9), 4); bloop(600, 0.12);
 }
@@ -2043,8 +2058,9 @@ function syncVisuals(realDt, simDt) {
   // 背部警示色：宝宝越靠边越红
   let maxR = 0;
   for (const d of ducklings) if (d.state === 'onBack') maxR = Math.max(maxR, Math.hypot(d.x / BACK_A, d.z / BACK_B));
-  backPatch.material.color.copy(PATCH_SAFE).lerp(PATCH_DANGER, THREE.MathUtils.clamp((maxR - 0.6) / 0.35, 0, 1));
-  backPatch.material.opacity = 0.55 + THREE.MathUtils.clamp((maxR - 0.6) / 0.35, 0, 1) * 0.35;
+  const danger = THREE.MathUtils.clamp((maxR - 0.72) / 0.25, 0, 1);   // 平时看不见，只有宝宝快到边上时才泛红（不像界面元素）
+  backPatch.material.color.copy(PATCH_SAFE).lerp(PATCH_DANGER, danger);
+  backPatch.material.opacity = 0.5 * danger; backPatch.visible = danger > 0.01;
 
   if (foam.visible) {
     foam.position.set(S.x, riverC.visible ? 0.05 : 0.02, S.z + 0.05);
@@ -2109,11 +2125,48 @@ function syncVisuals(realDt, simDt) {
 
   if (!S.over && !S.arrived && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray')) {
     S.over = true; C.pending = 'retry';
-    const lost = (S.eaten ? `<br>被叼走了 ${S.eaten} 只 😢` : '') + (S.adopted ? `<br>一路收养了 ${S.adopted} 只迷路的宝宝 💛` : '');
-    showBanner(S.eaten === ducklings.filter(d => d.state !== 'stray').length
-      ? `<b>宝宝们都被叼走了……</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米${fieldNotes(['odds'])}<br>点击重来第 ${curDay().age} 天`
-      : `<b>全军落水！</b><br>离家还差 ${Math.ceil(dayLen() - S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}${fieldNotes(['rain'])}<br>点击重来第 ${curDay().age} 天`);
+    const allTaken = S.eaten === ducklings.filter(d => d.state !== 'stray').length, left = Math.ceil(dayLen() - S.dist);
+    book.show({ title: `Day ${curDay().age} · Didn't Make It`, ducks: familyDoodles(),
+      lines: allTaken ? [`Every duckling was taken... ${left} m from home.`]
+        : [`All the ducklings ended up in the water, too cold to keep up. ${left} m from home.`, ...(S.eaten ? [`${S.eaten} taken by predators.`] : [])],
+      ...fieldNotes([allTaken ? 'odds' : 'rain']), footer: `(click to try Day ${curDay().age} again)` });
   }
+}
+
+// ---------- 教学：不写字，在需要的那一刻把操作图标放到鸭妈妈旁边，做到了就消失（学会的存下来，下次不再教） ----------
+let taught = {}; try { taught = JSON.parse(localStorage.getItem('duckShiftTaught') || '{}'); } catch (e) {}
+const TUT = { cur: null, slow: false, t: 0, left: false, right: false, quacked: false, pos: new THREE.Vector3() };
+function learn(k) {
+  taught[k] = true; try { localStorage.setItem('duckShiftTaught', JSON.stringify(taught)); } catch (e) {}
+  if (TUT.cur === k) { fx.sparkle(TUT.pos.clone(), 5); bloop(760, 0.1); TUT.cur = null; glyph.hide(); TUT.slow = false; }
+}
+function updateTutorial(realDt) {
+  if (!S.started || S.over || S.arrived || S.paused || book.visible) { glyph.hide(); TUT.slow = false; TUT.cur = null; return; }
+  const want =
+    !taught.tilt && C.day === 0 && S.time > 0.6 ? 'tilt' :                         // 开局：先学会歪身子
+    !taught.kick && FL.phase === 'snag' ? 'kick' :                                  // 第一次被钓线缠住：往另一边蹬
+    !taught.cover && hawkState.phase === 'dive' ? 'cover' :                         // 第一次鹰俯冲：嘎！护崽
+    !taught.hold && C.day >= 1 && S.displayCd <= 0 && (L.phase === 'windup' || HR.phase === 'cock' || RV.phase === 'warn') ? 'hold' :   // 嘎！管不了的危险：按住装受伤
+    !taught.call && ducklings.some(d => d.state === 'floating') ? 'call' : null;    // 第一次有宝宝落水：嘎！叫它回来
+  if (want !== TUT.cur) { TUT.cur = want; TUT.t = 0; TUT.quacked = false; TUT.slow = false; if (!want) { glyph.hide(); return; } }
+  if (!want) return;
+  TUT.t += realDt;
+  TUT.pos.set(S.x + 1.5, 1.0, S.z - 0.5);
+  if (want === 'tilt') {
+    glyph.show('mouse');
+    if (mouse.x < -0.45) TUT.left = true; if (mouse.x > 0.45) TUT.right = true;
+    if (TUT.left && TUT.right) learn('tilt');
+  } else if (want === 'kick') {
+    glyph.show(FL.side > 0 ? 'mouseL' : 'mouseR');
+    TUT.pos.set(S.x - FL.side * 1.6, 1.0, S.z - 0.2);
+  } else if (want === 'cover' || want === 'call') {
+    glyph.show('shift'); TUT.slow = want === 'cover' && TUT.t < 4;
+    if (TUT.quacked) learn(want);
+  } else if (want === 'hold') {
+    glyph.show('hold'); TUT.slow = TUT.t < 5;
+    glyph.progress(S.shiftDown ? Math.min(1, (S.holdT || 0) / P.displayHold) : 0);
+  }
+  glyph.update(realDt, TUT.pos);
 }
 
 // ---------- 主循环（固定步长） ----------
@@ -2126,6 +2179,7 @@ function frame(now) {
   if (S.started && !S.paused && !S.over) {
     const teetering = P.teeterSlowMo && ducklings.some(d => d.state === 'onBack' && d.teeter > 0);
     if (S.slowMo > 0) { S.slowMo -= realDt; S.timeScale = 0.3; }
+    else if (TUT.slow) S.timeScale += (0.3 - S.timeScale) * Math.min(1, realDt * 8);   // 教学时刻：放慢，给时间看清图标
     else S.timeScale += ((teetering ? 0.5 : 1) - S.timeScale) * Math.min(1, realDt * 8);
     simDt = realDt * S.timeScale;
     acc += simDt;
@@ -2143,11 +2197,15 @@ function frame(now) {
   }
   if (!(S.started && !S.paused && !S.over)) rumbleGain(0);
   syncVisuals(realDt, simDt);
+  updateTutorial(realDt);
+  book.update(realDt);
+  renderer.domElement.style.cursor = S.started && !S.paused && !S.over && !book.visible ? 'none' : 'default';   // 玩的时候藏起鼠标指针：鼠标是用来控制重心的
   stylize.render(POST_MODES[P.post] || 0, now / 1000);
 }
 
 // ---------- 调参面板 ----------
 const gui = new GUI({ title: '手感调参（H 隐藏）' });
+if (!DEV) gui.hide();
 const onCh = () => saveParams();
 gui.add(P, 'artStyle', { '原版': 'orig', 'A 扁平（Goose 式）': 'A', 'B 绘本': 'B', 'C 低模': 'C' }).name('🎨 美术风格（1-4）').onChange(v => { applyStyle(v); onCh(); });
 const f1 = gui.addFolder('鸭妈妈倾斜');
@@ -2246,6 +2304,7 @@ gui.add({ copy() {
 } }, 'copy').name('📋 复制当前参数');
 gui.add({ reset() { Object.assign(P, DEFAULTS); applyStyle(P.artStyle); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); } }, 'reset').name('↺ 恢复默认参数');
 gui.add({ restart() { C.roster = C.startRoster.slice(); reset(); S.started = true; } }, 'restart').name('🔄 重来这一天（R）');
+gui.add({ reteach() { taught = {}; try { localStorage.removeItem('duckShiftTaught'); } catch (e) {} } }, 'reteach').name('🎓 重新教学');
 gui.add({ fresh() { newCampaign(); reset(); S.started = true; } }, 'fresh').name('🆕 新的旅程（第 1 天）');
 gui.add({ skip() { C.roster = ducklings.filter(d => d.roster && !['eaten', 'carried', 'stray'].includes(d.state)).map(d => d.roster); C.day = (C.day + 1) % DAYS.length; reset(); S.started = true; } }, 'skip').name('⏭ 跳到下一天（测试）');
 function hint(msg, ms) { if (P.debugUI) alertless(msg, ms); }   // 游戏中的文字提示只在调试 UI 下出现
@@ -2267,7 +2326,8 @@ addEventListener('resize', () => {
 newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay };   // 调试用
+book.show(titlePage());
+window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; } };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
