@@ -48,11 +48,11 @@
 </head>
 <body>
 <div id="hud">
-  背上宝宝 <b id="onBack">5</b> / 5 · 救回 <b id="saves">0</b> · 捞回 <b id="catches">0</b> · 叼走 <b id="eaten">0</b><br>
+  背上宝宝 <b id="onBack">5</b> / <span id="total">5</span> · 收养 <b id="adopted">0</b> · 救回 <b id="saves">0</b> · 捞回 <b id="catches">0</b> · 叼走 <b id="eaten">0</b><br>
   已漂 <b id="dist">0</b> 米 · 最远 <span id="best">0</span> 米<br>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
-<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
+<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖　游到迷路的宝宝旁边就能收养它<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
@@ -95,6 +95,9 @@ const DEFAULTS = {
   climbPerQuack: 1,      // 每次嘎！最多爬上来几只
   lostTime: 12,          // 失温：从暖和到冻透要在水里泡多久（冻透就跟丢）
   warmRate: 0.3,         // 背上回暖速度（每秒回多少体温，背中间更快）
+  orphanFirst: 30,       // 开局多久出现第一只迷路的宝宝（秒）
+  orphanInterval: 32,    // 之后平均间隔（秒）
+  adoptReach: 1.4,       // 游到离它多近就会跟上来
   hopImpact: 1.0,        // 宝宝从尾巴爬上背时的冲击（让妈妈抬头，背上的往后滑）
   scrambleTime: 1.1,     // 爬上来后主动往前挪的时间（䴙䴘宝宝会从尾巴一路挪到脖子边）
   scrambleStrength: 1.8, // 往前挪的力度
@@ -244,20 +247,59 @@ const KINDS = [
 const START_POS = [[0, 0.3], [-0.2, -0.15], [0, -0.05], [0.22, -0.2], [-0.05, -0.38]];
 let ducklings = [];
 
-function spawnDucklings() {
-  for (const d of ducklings) { d.mesh.removeFromParent(); }
-  ducklings = KINDS.map((k, i) => {
+function makeDucklingEntry(k, i, x = 0, z = 0) {
     const mesh = makeDuckling(k.color, k.scale, k.kind, i);
     const label = labelSprite(k.name); label.position.y = 0.55; mesh.add(label);
     const zz = labelSprite('Zz'); zz.position.set(0.15, 0.45, 0); zz.visible = false; mesh.add(zz);
     const help = labelSprite('救我！'); help.position.y = 0.55; help.visible = false; mesh.add(help);
     const coldLbl = labelSprite('❄ 好冷', 'rgba(70,150,225,0.92)', '#fff'); coldLbl.position.y = 0.55; coldLbl.visible = false; mesh.add(coldLbl);
+    const strayLbl = labelSprite('迷路了', 'rgba(242,150,60,0.95)', '#fff'); strayLbl.position.y = 0.55; strayLbl.visible = false; mesh.add(strayLbl);
     backGroup.add(mesh); styleObject(mesh);
-    return { ...k, mesh, label, zz, help, coldLbl, teeter: 0, scramble: 0, x: START_POS[i][0], z: START_POS[i][1], vx: 0, vz: 0,
+    return { ...k, mesh, label, zz, help, coldLbl, strayLbl, teeter: 0, scramble: 0, x, z, vx: 0, vz: 0,
       state: 'onBack', timer: 1 + Math.random() * 3, tx: 0, tz: 0, sleeping: false, sleepTimer: 6 + Math.random() * 4,
       fightTimer: 5 + Math.random() * 4, fighting: false, heading: 0,
       wp: new THREE.Vector3(), wv: new THREE.Vector3(), spin: new THREE.Vector3(), queueIdx: -1, peepCd: 0, warmth: 1 };
-  });
+}
+function spawnDucklings() {
+  for (const d of ducklings) { d.mesh.removeFromParent(); }
+  ducklings = KINDS.map((k, i) => makeDucklingEntry(k, i, START_POS[i][0], START_POS[i][1]));
+}
+
+// 迷路的宝宝（别家的，毛色偏赭石）：从前方漂来，游到它旁边就跟上队伍，再用嘎！捞上背就是自家的了
+const ORPHAN_KINDS = [
+  { kind: 'curious', name: '捡来的', color: 0xe0ad5a, mass: 1, scale: 0.95 },
+  { kind: 'sleepy',  name: '捡来的', color: 0xe6bd78, mass: 1, scale: 0.95 },
+  { kind: 'chubby',  name: '捡来的', color: 0xd99f4c, mass: 2, scale: 1.25 },
+];
+function spawnOrphan() {
+  const k = ORPHAN_KINDS[Math.floor(Math.random() * ORPHAN_KINDS.length)];
+  const d = makeDucklingEntry(k, ducklings.length);
+  scene.attach(d.mesh);
+  d.state = 'stray'; d.warmth = 0.85; d.strayPeep = 0;
+  d.wp.set(rand(-1, 1) * (RIVER_HALF - 1.2), 0.02, S.z - 14);
+  d.strayVx = rand(-0.3, 0.3);
+  d.mesh.position.copy(d.wp);
+  ducklings.push(d);
+  alertless('有只迷路的宝宝！游过去接它 🐥');
+}
+function updateOrphans(dt, flow) {
+  S.orphanTimer -= dt * P.hazardRate;
+  if (S.orphanTimer <= 0) { spawnOrphan(); S.orphanTimer = P.orphanInterval * rand(0.75, 1.25); }
+  for (const d of ducklings) {
+    if (d.state !== 'stray') continue;
+    d.wp.z += flow * dt; d.wp.x += d.strayVx * dt;   // 跟着水漂，自己也乱划
+    if (Math.abs(d.wp.x) > RIVER_HALF - 0.8) { d.strayVx = -Math.sign(d.wp.x) * Math.abs(d.strayVx); d.wp.x = Math.sign(d.wp.x) * (RIVER_HALF - 0.8); }   // 只在水里
+    d.warmth = Math.max(0.05, d.warmth - dt / P.lostTime * 0.5);
+    d.strayPeep -= dt;
+    if (d.strayPeep <= 0) { d.strayPeep = 0.9; peep(2900, 0.07); setTimeout(() => peep(3300, 0.06), 110); d.mouth = 1; }
+    if (Math.random() < dt * 3) fx.ring(d.wp.x, d.wp.z, { r0: 0.05, r1: 0.25, life: 0.8, opacity: 0.45 });
+    if (Math.hypot(d.wp.x - S.x, d.wp.z - S.z) < P.adoptReach) {   // 接到了：排进身后的队伍
+      d.state = 'floating'; d.floatT = 0; d.fellAt = performance.now(); S.adopted++;
+      peep(1800, 0.2); setTimeout(() => peep(2400, 0.18), 120);
+      fx.sparkle(d.wp.clone().setY(0.3), 6);
+    } else if (d.wp.z > S.z + 4) d.state = 'gone';   // 错过了
+  }
+  for (let i = ducklings.length - 1; i >= 0; i--) if (ducklings[i].state === 'gone') { ducklings[i].mesh.removeFromParent(); ducklings.splice(i, 1); }
 }
 
 // ---------- 音效（WebAudio 合成，无需素材） ----------
@@ -583,7 +625,7 @@ const S = {
   roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0,
   dist: 0, quackCd: 0, flap: 0, saves: 0, timeScale: 1, slowMo: 0,
   logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, paused: false, started: false, over: false,
-  rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0,
+  rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0,
   queue: [], xHistory: [],
 };
 let best = 0; try { best = +localStorage.getItem('duckShiftBest') || 0; } catch (e) {}
@@ -592,7 +634,7 @@ const mouse = { x: 0, y: 0 };
 function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
-    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0 });
+    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0 });
   endRapids();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
@@ -854,6 +896,7 @@ function updateWorld(dt) {
   shore.update(S.dist, performance.now() / 1000, dt, flow);
   fx.update(dt, flow);
   updateRapids(dt);
+  updateOrphans(dt, flow);
   // 尾迹：妈妈两侧交替冒圈，被水流带走就拉成 V 字
   S.wakeEmit = (S.wakeEmit ?? 0) - dt;
   if (S.wakeEmit <= 0 && curStyle.foam) {
@@ -1180,6 +1223,7 @@ function syncVisuals(realDt, simDt) {
     const cold = (1 - d.warmth) * 0.6;
     d.tintMat.color.copy(d.tintBase).lerp(COLD_TINT, cold); d.tintMat.emissive.copy(d.tintEm).multiplyScalar(1 - cold);
     d.label.visible = P.showLabels && d.state === 'onBack';
+    if (d.state === 'onBack') d.strayLbl.visible = false;
     if (d.state === 'onBack') {
       d.mesh.position.set(d.x, backHeight(d.x, d.z), -d.z);
       const sp = Math.hypot(d.vx, d.vz);
@@ -1207,6 +1251,8 @@ function syncVisuals(realDt, simDt) {
     } else {
       d.mesh.position.copy(d.wp);
       d.help.visible = d.state === 'floating';
+      d.strayLbl.visible = d.state === 'stray';
+      if (d.state === 'stray') { d.mesh.position.y = 0.02 + Math.abs(Math.sin(t * 8 + d.wp.x * 5)) * 0.05; d.mesh.rotation.y = Math.sin(t * 1.5 + d.wp.x) * 0.8; }
       if (d.state === 'floating') {
         const prog = 1 - d.warmth;   // 越冷扑腾越急
         d.mesh.position.y = 0.02 + Math.abs(Math.sin(t * (9 + prog * 12) + d.x * 7)) * (0.06 + prog * 0.08);   // 扑腾，越接近爬上来越用力
@@ -1219,7 +1265,7 @@ function syncVisuals(realDt, simDt) {
       d.help.visible = d.help.visible && !(S.cover > 0);
       const showCold = d.help.visible && d.warmth < 0.6;   // 冷了：「救我！」换成「❄ 好冷」
       d.coldLbl.visible = showCold; if (showCold) d.help.visible = false;
-      ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued',
+      ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued' || d.state === 'stray',
         panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi, cold: 1 - d.warmth });
     }
   }
@@ -1265,6 +1311,8 @@ function syncVisuals(realDt, simDt) {
   // HUD
   const onBack = ducklings.filter(d => d.state === 'onBack').length;
   document.getElementById('onBack').textContent = onBack;
+  document.getElementById('total').textContent = ducklings.filter(d => d.state !== 'eaten' && d.state !== 'carried' && d.state !== 'stray').length;
+  document.getElementById('adopted').textContent = S.adopted;
   document.getElementById('saves').textContent = S.saves;
   document.getElementById('catches').textContent = S.catches;
   document.getElementById('eaten').textContent = S.eaten;
@@ -1272,11 +1320,11 @@ function syncVisuals(realDt, simDt) {
   document.getElementById('best').textContent = Math.floor(best);
   document.getElementById('cdFill').style.width = (100 * (1 - S.quackCd / P.quackCooldown)) + '%';
 
-  if (!S.over && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten')) {
+  if (!S.over && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray')) {
     S.over = true;
     if (S.dist > best) { best = S.dist; try { localStorage.setItem('duckShiftBest', String(best)); } catch (e) {} }
-    const lost = S.eaten ? `<br>被水下的家伙叼走了 ${S.eaten} 只 😢` : '';
-    showBanner(S.eaten === ducklings.length
+    const lost = (S.eaten ? `<br>被叼走了 ${S.eaten} 只 😢` : '') + (S.adopted ? `<br>一路收养了 ${S.adopted} 只迷路的宝宝 💛` : '');
+    showBanner(S.eaten === ducklings.filter(d => d.state !== 'stray').length
       ? `<b>宝宝们都被叼走了……</b><br>这次漂了 ${Math.floor(S.dist)} 米<br><br>点击或按 R 重来`
       : `<b>全军落水！</b><br>这次漂了 ${Math.floor(S.dist)} 米<br>宝宝们湿漉漉地跟在后面 🐥🐥🐥${lost}<br><br>点击或按 R 重来`);
   }
@@ -1374,6 +1422,11 @@ f9.add(P, 'rapidsRocks', 0, 10, 1).name('礁石数').onChange(onCh);
 f9.add(P, 'dropKick', 0, 8, 0.1).name('落差前栽力度').onChange(onCh);
 f9.add(P, 'dropSlide', 0, 3, 0.1).name('落差宝宝前扑').onChange(onCh);
 f9.add({ go() { if (S.started) startRapids(); } }, 'go').name('🌊 立刻来一段');
+const f10 = gui.addFolder('迷路的宝宝（收养）');
+f10.add(P, 'orphanFirst', 0, 120, 1).name('首次出现秒').onChange(onCh);
+f10.add(P, 'orphanInterval', 5, 120, 1).name('平均间隔秒').onChange(onCh);
+f10.add(P, 'adoptReach', 0.5, 3, 0.1).name('接到距离').onChange(onCh);
+f10.add({ go() { if (S.started) spawnOrphan(); } }, 'go').name('🐥 立刻来一只');
 const f5 = gui.addFolder('镜头与特效');
 f5.add(P, 'cameraMode', { '3D 俯视': 'top', '身后追尾': 'chase' }).name('视角').onChange(onCh);
 f5.add(P, 'camHeight', 4, 18, 0.5).name('俯视：镜头距离').onChange(onCh);
@@ -1403,7 +1456,7 @@ addEventListener('resize', () => {
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, COLD_TINT, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { S, P, L, COLD_TINT, spawnOrphan, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
