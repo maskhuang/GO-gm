@@ -1,0 +1,91 @@
+{
+ "clips": {
+  "quack": [
+   "quack_1",
+   "quack_2",
+   "quack_3",
+   "quack_4"
+  ],
+  "peep": [
+   "peep_1",
+   "peep_2",
+   "peep_3",
+   "peep_4",
+   "peep_5",
+   "peep_6"
+  ],
+  "splashbig": [
+   "splashbig_1"
+  ],
+  "splash": [
+   "splash_1",
+   "splash_2",
+   "splash_3",
+   "splash_4"
+  ],
+  "plop": [
+   "plop_1"
+  ],
+  "thud": [
+   "thud_1",
+   "thud_2"
+  ],
+  "gulp": [
+   "gulp_1"
+  ],
+  "bubbles": [
+   "bubbles_1"
+  ],
+  "hiss": [
+   "hiss_1"
+  ],
+  "gull": [
+   "gull_1"
+  ],
+  "hawk": [
+   "hawk_1",
+   "hawk_2"
+  ],
+  "heron": [
+   "heron_1",
+   "heron_2",
+   "heron_3"
+  ],
+  "flap": [
+   "flap_1"
+  ],
+  "whoosh": [
+   "whoosh_1"
+  ]
+ },
+ "loops": [
+  "stream",
+  "birds",
+  "rain",
+  "rapids"
+ ],
+ "credits": {
+  "quack_b": "\"Duck_quack_1_Sweden.wav\" by calodas — https://freesound.org/s/188376/ (CC0)",
+  "quack_d": "\"Duck_quack_2_Sweden.wav\" by calodas — https://freesound.org/s/188375/ (CC0)",
+  "peep_c": "\"Fowl - Chicken; Baby Chick, Peep\" by TheKingOfGeeks360 — https://freesound.org/s/826677/ (CC0)",
+  "splash_a": "\"Splash\" by swordofkings128 — https://freesound.org/s/398032/ (CC0)",
+  "splash_b": "\"water splash 2\" by swordofkings128 — https://freesound.org/s/398039/ (CC0)",
+  "splash_c": "\"Small Puddle Splash\" by Robo9418 — https://freesound.org/s/841834/ (CC0)",
+  "splashes": "\"Small_Splashes.wav\" by N-RAZM — https://freesound.org/s/390391/ (CC0)",
+  "plop": "\"Water.wav\" by danielpodlovics — https://freesound.org/s/530359/ (CC0)",
+  "thud": "\"soft-hit.wav\" by Krokulator — https://freesound.org/s/653910/ (CC0)",
+  "pillow": "\"Soft Impact - Pillow Hit\" by KoimeMatsuchiya — https://freesound.org/s/872227/ (CC0)",
+  "gulp": "\"Water_Gulp.wav\" by Q.K. — https://freesound.org/s/56271/ (CC0)",
+  "bubbles": "\"Bubbles\" by hotpin7 — https://freesound.org/s/840042/ (CC0)",
+  "hiss": "\"Goose Hiss\" by el_boss — https://freesound.org/s/740195/ (CC0)",
+  "gull": "\"Seagull single call\" by steaq — https://freesound.org/s/263786/ (CC0)",
+  "hawk": "\"210227 Red Tailed Hawk, eq isolated calls\" by TRP — https://freesound.org/s/616926/ (CC0)",
+  "heron": "\"Haigur-1\" by inspire153 — https://freesound.org/s/825293/ (CC0)",
+  "flap": "\"Wing Flap 2.wav\" by _stubb — https://freesound.org/s/389633/ (CC0)",
+  "whoosh": "\"whoosh_short_mid.wav\" by DJT4NN3R — https://freesound.org/s/449996/ (CC0)",
+  "stream": "\"Ambiance_Stream_Calm_Loop_Stereo.wav\" by Nox_Sound — https://freesound.org/s/548373/ (CC0)",
+  "birds": "\"morning_birds_ambience.wav\" by vibe_crc — https://freesound.org/s/50619/ (CC0)",
+  "rain": "\"Soft Rain Loop\" by _lynks — https://freesound.org/s/595717/ (CC0)",
+  "rapids": "\"rapidsclose.wav\" by bsumusictech — https://freesound.org/s/82084/ (CC0)"
+ }
+}

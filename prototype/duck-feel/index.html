@@ -382,11 +382,13 @@ function updateOrphans(dt, flow) {
   for (let i = ducklings.length - 1; i >= 0; i--) if (ducklings[i].state === 'gone') { ducklings[i].mesh.removeFromParent(); ducklings.splice(i, 1); }
 }
 
-// ---------- 音效（WebAudio 合成，无需素材） ----------
+// ---------- 音效：真实录音（Freesound 的 CC0 录音，tools/build_sfx.py 切好放在 audio/sfx/） ----------
 // 信号链：音效 → 声像（按横向位置左右分） → bus → 慢动作低通 → 干声 + 一点室外混响 → 总音量 → 压限 → 输出
-// 环境声（流水、鸟叫）走 amb，不进混响也不受慢动作影响
-let actx = null, bus = null, master = null, slowLP = null, amb = null, noiseBuf = null;
-const vary = (v, k = 0.06) => v * (1 + (Math.random() * 2 - 1) * k);   // 每次都差一点：同一个声音反复听也不腻
+// 环境声（流水、鸟、雨、急流）走 amb，不进混响也不受慢动作影响
+// 每个声音有几个变体随机挑，再加一点音高/音量的随机：同一个声音反复听也不腻
+let actx = null, bus = null, master = null, slowLP = null, amb = null;
+const vary = (v, k = 0.06) => v * (1 + (Math.random() * 2 - 1) * k);
+const SFX = { buf: new Map(), clips: {}, last: {}, ready: false };
 function ensureAudio() {
   if (!actx) {
     actx = new AudioContext();
@@ -396,17 +398,22 @@ function ensureAudio() {
     master = actx.createGain(); master.gain.value = P.muted ? 0 : P.volume; master.connect(comp);
     slowLP = actx.createBiquadFilter(); slowLP.type = 'lowpass'; slowLP.frequency.value = 18000; slowLP.Q.value = 0.5;
     bus = actx.createGain(); bus.connect(slowLP); slowLP.connect(master);
-    const verb = actx.createConvolver(), wet = actx.createGain(); wet.gain.value = 0.14;
+    const verb = actx.createConvolver(), wet = actx.createGain(); wet.gain.value = 0.12;
     verb.buffer = makeIR(0.9); slowLP.connect(verb).connect(wet).connect(master);
     amb = actx.createGain(); amb.gain.value = 0; amb.connect(master);
-    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
-    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    loadMusic();
+    loadSfx(); loadMusic();
   }
   if (actx.state === 'suspended') actx.resume();
 }
+function loadSfx() {
+  const get = (name) => fetch(`audio/sfx/${name}.mp3`).then(r => r.arrayBuffer()).then(b => actx.decodeAudioData(b)).then(buf => SFX.buf.set(name, buf));
+  fetch('audio/sfx/sfx.json').then(r => r.json()).then(m => {
+    SFX.clips = m.clips;
+    return Promise.all([...Object.values(m.clips).flat(), ...m.loops.map(l => 'loop_' + l)].map(get));
+  }).then(() => { SFX.ready = true; }).catch(e => console.warn('音效加载失败', e));
+}
 function setVolume() { if (master) master.gain.setTargetAtTime(P.muted ? 0 : P.volume, actx.currentTime, 0.05); }
-function makeIR(len) {   // 室外的短混响：开阔水面上一点点回声，让合成音不那么「干」
+function makeIR(len) {   // 室外的短混响：开阔水面上一点点回声
   const n = Math.floor(actx.sampleRate * len), b = actx.createBuffer(2, n, actx.sampleRate);
   for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3; }
   return b;
@@ -416,188 +423,90 @@ function out(x) {   // x = 世界坐标里的横向位置：左边的宝宝从�
   const p = actx.createStereoPanner(); p.pan.value = THREE.MathUtils.clamp(x / RIVER_HALF, -1, 1) * 0.7; p.connect(bus);
   return p;
 }
-function env(dest, t, attack, peak, dur) {   // 快起、指数衰减的包络
-  const g = actx.createGain();
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  g.connect(dest); return g;
-}
-function osc(type, t, dur, dest) { const o = actx.createOscillator(); o.type = type; o.connect(dest); o.start(t); o.stop(t + dur + 0.03); return o; }
-function noise(t, dur, dest) { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.connect(dest); s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.03); return s; }
-function vibrato(param, t, dur, rate, depth) { const lg = actx.createGain(); lg.gain.value = depth; lg.connect(param); osc('sine', t, dur, lg).frequency.value = rate; }
 function filt(type, f, q, dest) { const b = actx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(dest); return b; }
+// 放一个录音：随机挑一个变体（不连着重复同一个）；rate 变调，offset/len 只放其中一段
+function play(base, { vol = 1, rate = 1, x, delay = 0, offset = 0, len, dest } = {}) {
+  if (!actx || !SFX.ready) return null;
+  const list = SFX.clips[base]; if (!list) return null;
+  let name = list[Math.floor(Math.random() * list.length)];
+  if (list.length > 1 && name === SFX.last[base]) name = list[(list.indexOf(name) + 1) % list.length];
+  SFX.last[base] = name;
+  const t = actx.currentTime + delay, src = actx.createBufferSource(), g = actx.createGain();
+  src.buffer = SFX.buf.get(name); src.playbackRate.value = vary(rate, 0.05);
+  g.gain.value = vary(vol, 0.1); src.connect(g).connect(dest || out(x));
+  src.start(t, offset, len); return src;
+}
 
-// 嘎！：两个音节「嘎-嘎」。鼻音来自几个共振峰，「哇」的那一下是低通先张开再合上（像嘴一张一合）
-function quackSyl(t, f0, dur, dest) {
-  const g = env(dest, t, 0.012, 1.25, dur);   // 嘎！是玩家唯一的动作：混音里要最响亮、最清楚
-  const lp = filt('lowpass', 600, 3.5, g);
-  lp.frequency.setValueAtTime(700, t); lp.frequency.exponentialRampToValueAtTime(3400, t + dur * 0.3); lp.frequency.exponentialRampToValueAtTime(900, t + dur);
-  const src = actx.createOscillator(); src.type = 'sawtooth';
-  src.frequency.setValueAtTime(f0 * 0.9, t); src.frequency.linearRampToValueAtTime(f0 * 1.06, t + dur * 0.25); src.frequency.exponentialRampToValueAtTime(f0 * 0.68, t + dur);
-  for (const [fc, q, lv] of [[1050, 5, 1], [2150, 7, 0.55], [3300, 8, 0.22]]) {
-    const lg = actx.createGain(); lg.gain.value = lv; lg.connect(lp);
-    src.connect(filt('bandpass', fc, q, lg));
-  }
-  src.start(t); src.stop(t + dur + 0.03);
-  const rasp = actx.createGain(); rasp.gain.value = 0.18; rasp.connect(lp);   // 嗓子里的一点毛刺
-  noise(t, dur, filt('bandpass', 1600, 1.2, rasp));
+function quackSound(x) {   // 嘎-嘎：两声真鸭叫，第二声低一点短一点；翅膀跟着扑一下
+  play('quack', { vol: 0.68, x });
+  play('quack', { vol: 0.54, rate: 0.94, x, delay: vary(0.2, 0.1) });
+  play('flap', { vol: 0.22, rate: 1.15, x });
 }
-function quackSound(x) {
-  if (!actx) return;
-  const t = actx.currentTime + 0.005, f0 = vary(300, 0.1), o = out(x);
-  quackSyl(t, f0, vary(0.17, 0.12), o);
-  quackSyl(t + vary(0.19, 0.08), f0 * vary(0.88, 0.04), vary(0.14, 0.12), o);
+// 宝宝叽：小鸡的叫声，按 freq 变调（越慌越高），vol 原来是合成器的音量，换算一下
+const peepRate = (freq) => THREE.MathUtils.clamp(0.75 + (freq - 900) / 2500 * 0.55, 0.7, 1.35);
+function peep(freq, vol = 0.12, x) { play('peep', { vol: Math.min(1, vol * 1.6), rate: peepRate(freq), x }); }   // 尖叫的高频很刺耳：最响也压在嘎！之下
+function coldPeep(freq, vol = 0.08, x) {   // 冷得打颤：低一点、发闷、带颤音
+  const src = play('peep', { vol: Math.min(1, vol * 3), rate: peepRate(freq) * 0.82, dest: filt('lowpass', 3200, 0.7, out(x)) });
+  if (!src) return;
+  const lfo = actx.createOscillator(), lg = actx.createGain();
+  lfo.frequency.value = vary(20, 0.15); lg.gain.value = 0.05; lfo.connect(lg).connect(src.playbackRate);
+  lfo.start(); lfo.stop(actx.currentTime + 0.3);
 }
-// 叽：小鸡式的「上扬再落下」，带一点二次谐波才像嗓子而不像电子表
-function peep(freq, vol = 0.12, x) {
-  if (!actx) return;
-  const t = actx.currentTime, f = vary(freq, 0.05), dur = vary(0.1, 0.2), g = env(out(x), t, 0.008, vol, dur);
-  for (const [mul, lv] of [[1, 1], [2, 0.16]]) {
-    const lg = actx.createGain(); lg.gain.value = lv; lg.connect(g);
-    const o = osc('sine', t, dur, lg).frequency;
-    o.setValueAtTime(f * 0.85 * mul, t); o.linearRampToValueAtTime(f * 1.12 * mul, t + dur * 0.35); o.exponentialRampToValueAtTime(f * 0.8 * mul, t + dur);
-  }
+function splashSound(x, size = 1) {   // 落水：水花 + 一声「噗通」
+  play(size >= 1.1 ? 'splashbig' : 'splash', { vol: Math.min(1, 0.45 * size), rate: size >= 1.1 ? 1 : vary(1.05, 0.1), x });
+  play('plop', { vol: 0.45, rate: vary(0.9, 0.15), x, delay: 0.02 });
 }
-function coldPeep(freq, vol = 0.08, x) {   // 冷得打颤的叫声：低一点、带颤音
-  if (!actx) return;
-  const t = actx.currentTime, f = vary(freq, 0.05), dur = vary(0.2, 0.15), g = env(out(x), t, 0.02, vol, dur);
-  const o = osc('triangle', t, dur, g);
-  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.82, t + dur);
-  vibrato(o.frequency, t, dur, vary(22, 0.15), f * 0.06);
-}
-// 落水：一声「噗通」（气泡共振是往上滑的）+ 水花的嘶声 + 后面零星溅回来的小水滴
-function splashSound(x, size = 1) {
-  if (!actx) return;
-  const t = actx.currentTime, o = out(x);
-  const ng = env(o, t, 0.004, 0.38 * size, 0.32 * size);
-  const lp = filt('lowpass', 3200, 0.7, ng); lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(380, t + 0.3 * size);
-  noise(t, 0.32 * size, lp);
-  const plop = osc('sine', t, 0.08, env(o, t, 0.004, 0.3, 0.08));
-  plop.frequency.setValueAtTime(vary(320, 0.1), t); plop.frequency.exponentialRampToValueAtTime(vary(1100, 0.1), t + 0.06);
-  for (let i = 0, n = 3 + Math.floor(Math.random() * 3); i < n; i++) {
-    const td = t + 0.06 + Math.random() * 0.3, f = 1200 + Math.random() * 1400;
-    const d = osc('sine', td, 0.04, env(o, td, 0.003, 0.05 + Math.random() * 0.04, 0.04));
-    d.frequency.setValueAtTime(f, td); d.frequency.exponentialRampToValueAtTime(f * 1.7, td + 0.03);
-  }
-}
-function thudSound(x) {   // 软软的一下（羽毛 + 肉），不是硬邦邦的敲击
-  if (!actx) return;
-  const t = actx.currentTime, o = out(x);
-  const s = osc('sine', t, 0.14, env(o, t, 0.004, 0.3, 0.14));   // 撞来撞去很频繁：别太响
-  s.frequency.setValueAtTime(vary(170, 0.1), t); s.frequency.exponentialRampToValueAtTime(65, t + 0.12);
-  noise(t, 0.05, filt('lowpass', 700, 0.7, env(o, t, 0.002, 0.25, 0.05)));
-}
+function thudSound(x) { play('thud', { vol: 0.47, x }); }
+// 小提示音：高的用钢琴轻轻点一下（和配乐一个音色）；低的是水下冒泡
 function bloop(f0 = 220, vol = 0.18, x) {
-  if (!actx) return;
-  const t = actx.currentTime, f = vary(f0, 0.05), dur = vary(0.1, 0.1);
-  const o = osc('sine', t, dur, env(out(x), t, 0.008, vol, dur));
-  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.8, t + dur * 0.8);
+  if (f0 >= 300) { if (actx) pianoNote(actx.currentTime + 0.01, Math.round(69 + 12 * Math.log2(f0 / 440)) + 12, Math.min(0.85, vol * 8), 0.35, out(x)); return; }
+  play('bubbles', { vol: Math.min(1, vol * 1.1), rate: f0 / 220, x, offset: Math.random() * 0.4, len: 0.16 });   // 水下黑影一路冒泡，很密：要轻
 }
-function screechSound() {   // 鹰：往下滑的尖啸，带沙哑的气声
-  if (!actx) return;
-  const t = actx.currentTime, dur = vary(0.6, 0.1), f0 = vary(2700, 0.06), g = env(bus, t, 0.04, 0.22, dur);
-  const o = osc('sawtooth', t, dur, filt('bandpass', 2200, 2, g));
-  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.48, t + dur);
-  vibrato(o.frequency, t, dur, 28, 90);
-  const rasp = actx.createGain(); rasp.gain.value = 0.35; rasp.connect(g);
-  noise(t, dur, filt('bandpass', 2600, 1.5, rasp));
-}
-function whooshSound() {
-  if (!actx) return;
-  const t = actx.currentTime, len = vary(0.4, 0.1);
-  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + len * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + len); g.connect(bus);
-  const f = filt('bandpass', 400, 1.5, g); f.frequency.setValueAtTime(vary(400, 0.15), t); f.frequency.exponentialRampToValueAtTime(vary(1400, 0.15), t + len);
-  noise(t, len, f);
-}
-function gullSound(x) {   // 海鸥：「嘎——呜」两声往下滑的尖叫
-  if (!actx) return;
-  const t = actx.currentTime, o = out(x);
-  for (const [t0, f0] of [[0, vary(1500, 0.06)], [vary(0.2, 0.1), vary(1350, 0.06)]]) {
-    const g = env(o, t + t0, 0.02, 0.2, 0.2);
-    const s = osc('sawtooth', t + t0, 0.2, filt('bandpass', 1400, 3, g));
-    s.frequency.setValueAtTime(f0, t + t0); s.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + t0 + 0.18);
-  }
-}
-function hissSound(x) {   // 母鸭发火：嘶——
-  if (!actx) return;
-  const t = actx.currentTime, len = vary(0.5, 0.1);
-  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + len); g.connect(out(x));
-  noise(t, len, filt('bandpass', vary(3200, 0.08), 1.2, g));
-}
-function croakSound(x) {   // 苍鹭：低沉、粗糙的一声「呱」
-  if (!actx) return;
-  const t = actx.currentTime, dur = vary(0.28, 0.1), g = env(out(x), t, 0.02, 0.24, dur);
-  const s = osc('square', t, dur, filt('lowpass', 700, 1, g));
-  s.frequency.setValueAtTime(vary(150, 0.06), t); s.frequency.exponentialRampToValueAtTime(95, t + dur * 0.9);
-  const rasp = actx.createGain(); rasp.gain.value = 0.5; rasp.connect(g);
-  noise(t, dur, filt('bandpass', 500, 2, rasp));
-}
-let rainLoop = null;   // 雨声：中高频的循环噪声（去掉刺耳的最高频）
-function rainGain(v) {
-  if (!actx) return;
-  if (!rainLoop) {
-    const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
-    rainLoop = actx.createGain(); rainLoop.gain.value = 0; rainLoop.connect(amb);
-    src.connect(filt('highpass', 900, 0.7, filt('lowpass', 6500, 0.7, rainLoop))); src.start();
-  }
-  rainLoop.gain.setTargetAtTime(v * 0.9, actx.currentTime, 0.3);
-}
-let rumble = null;   // 急流的轰鸣：循环噪声，音量随离落差的距离变
-function rumbleGain(v) {
-  if (!actx) return;
-  if (!rumble) {
-    const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
-    rumble = actx.createGain(); rumble.gain.value = 0; rumble.connect(master);
-    src.connect(filt('lowpass', 650, 0.7, rumble)); src.start();
-  }
-  rumble.gain.setTargetAtTime(v * 0.28, actx.currentTime, 0.15);
-}
-function chompSound(x) {   // 水下黑影咬住：湿乎乎的「咕咚」
-  if (!actx) return;
-  const t = actx.currentTime, o = out(x);
-  const s = osc('sine', t, 0.18, env(o, t, 0.005, 0.4, 0.18));
-  s.frequency.setValueAtTime(vary(230, 0.08), t); s.frequency.exponentialRampToValueAtTime(55, t + 0.16);
-  const lp = filt('lowpass', 1500, 2, env(o, t, 0.003, 0.4, 0.14)); lp.frequency.setValueAtTime(1500, t); lp.frequency.exponentialRampToValueAtTime(200, t + 0.14);
-  noise(t, 0.14, lp);
-  for (let i = 0; i < 3; i++) {   // 冒上来的几个气泡
-    const td = t + 0.12 + i * vary(0.07, 0.3), f = vary(260, 0.2);
-    const b = osc('sine', td, 0.08, env(o, td, 0.006, 0.07, 0.08));
-    b.frequency.setValueAtTime(f, td); b.frequency.exponentialRampToValueAtTime(f * 1.8, td + 0.07);
-  }
+function screechSound() { play('hawk', { vol: 0.44 }); }
+function whooshSound() { play('whoosh', { vol: 0.34 }); }
+function gullSound(x) { play('gull', { vol: 0.52, x }); play('gull', { vol: 0.41, rate: 0.9, x, delay: vary(0.24, 0.1) }); }
+function hissSound(x) { play('hiss', { vol: 0.44, x }); }
+function croakSound(x) { play('heron', { vol: 0.6, x }); }
+function chompSound(x) {   // 水下黑影咬住：一口吞下 + 闷响 + 冒上来的泡
+  play('gulp', { vol: 0.66, rate: 0.85, x });
+  play('thud', { vol: 0.36, rate: 0.6, x });
+  play('bubbles', { vol: 0.33, x, delay: 0.1, len: 0.5 });
 }
 
-// 环境声：一直在的流水（低沉的褐噪声 + 忽大忽小的哗啦声）和远处偶尔的鸟叫。Goose 的环境安静但不空
-const AMB = { nodes: null, flutter: 0, bird: 3 };
-function startAmbience() {
-  const n = actx.sampleRate * 3, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
-  let last = 0; for (let i = 0; i < n; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
-  const low = actx.createBufferSource(); low.buffer = b; low.loop = true;
-  const lowG = actx.createGain(); lowG.gain.value = 0.45; lowG.connect(amb);
-  low.connect(filt('lowpass', 700, 0.7, lowG)); low.start();
-  const bab = actx.createBufferSource(); bab.buffer = noiseBuf; bab.loop = true;
-  const babG = actx.createGain(); babG.gain.value = 0.2; babG.connect(amb);
-  const bp = filt('bandpass', 2200, 1.5, babG); bab.connect(bp); bab.start();
-  return { babG, bp };
+// 循环环境声：同一段录音放两份、交叉淡入淡出地接力，接缝听不出来（也不怕 mp3 开头的空白）
+const LOOPS = {};
+function loopBed(name, dest) {
+  if (!LOOPS[name]) { const g = actx.createGain(); g.gain.value = 0; g.connect(dest); LOOPS[name] = { g, next: 0 }; }
+  return LOOPS[name];
 }
-function birdSong() {
-  const t0 = actx.currentTime, p = actx.createStereoPanner(); p.pan.value = (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5); p.connect(amb);
-  const up = Math.random() < 0.5, base = 2600 + Math.random() * 1800;
-  for (let i = 0, n = 2 + Math.floor(Math.random() * 4); i < n; i++) {
-    const t = t0 + i * vary(0.13, 0.2), dur = vary(0.08, 0.2);
-    const o = osc('sine', t, dur, env(p, t, 0.006, 0.22, dur));
-    o.frequency.setValueAtTime(up ? base : base * 1.25, t); o.frequency.exponentialRampToValueAtTime(up ? base * 1.3 : base * 0.8, t + dur);
+const XF_IN = new Float32Array(32).map((_, i) => Math.sin(i / 31 * Math.PI / 2)), XF_OUT = XF_IN.slice().reverse();   // 等功率交叉淡化
+function loopTick(name) {
+  const L = LOOPS[name], buf = SFX.buf.get('loop_' + name);
+  if (!L || !buf || L.g.gain.value < 0.001 && L.target < 0.001) return;
+  const t = actx.currentTime, XF = 1.5, seg = buf.duration - XF - 0.2;
+  while (L.next < t + 0.5) {
+    const s = Math.max(L.next, t + 0.02), src = actx.createBufferSource(), fg = actx.createGain();
+    src.buffer = buf; src.connect(fg).connect(L.g);
+    fg.gain.setValueCurveAtTime(XF_IN, s, XF); fg.gain.setValueCurveAtTime(XF_OUT, s + seg, XF);
+    src.start(s, 0.1); src.stop(s + seg + XF + 0.05);
+    L.next = s + seg;
   }
 }
+function loopGain(name, v, dest, tc = 0.3) {
+  if (!actx || !SFX.ready) return;
+  const L = loopBed(name, dest);
+  L.target = v; L.g.gain.setTargetAtTime(v, actx.currentTime, tc);
+  loopTick(name);
+}
+function rainGain(v) { loopGain('rain', v * 0.9, amb); }
+function rumbleGain(v) { loopGain('rapids', v * 0.8, master, 0.15); }
 function ambienceTick(dt, playing) {
   if (!actx) return;
-  if (!AMB.nodes) AMB.nodes = startAmbience();
   const t = actx.currentTime;
-  amb.gain.setTargetAtTime(playing ? 0.085 : 0.05, t, 0.8);   // 压在宝宝最小声的叽叽之下；翻笔记本时也留一点水声
-  if ((AMB.flutter -= dt) <= 0) {
-    AMB.flutter = 0.08 + Math.random() * 0.15;
-    AMB.nodes.babG.gain.setTargetAtTime((0.12 + Math.random() * 0.3) * (1 - 0.6 * RN.k), t, 0.05);
-    AMB.nodes.bp.frequency.setTargetAtTime(1600 + Math.random() * 1600, t, 0.08);
-  }
-  if ((AMB.bird -= dt) <= 0) { AMB.bird = 4 + Math.random() * 7; if (playing && RN.k < 0.4) birdSong(); }   // 下雨鸟就不叫了
+  amb.gain.setTargetAtTime(playing ? 0.35 : 0.22, t, 0.8);   // 翻笔记本时也留一点水声
+  loopGain('stream', 0.55, amb, 0.8);
+  loopGain('birds', playing ? 0.3 * (1 - RN.k) : 0.15, amb, 1.5);   // 下雨鸟就不叫了
+  loopTick('rain'); loopTick('rapids');
   slowLP.frequency.setTargetAtTime(S.slowMo > 0 ? 1600 : 18000, t, 0.06);   // 扒边救援的慢动作：整个世界闷下去（教学放慢时不闷）
 }
 
@@ -624,13 +533,13 @@ function musicOut() {
   return MUS.gain;
 }
 // 弹一个音：取最近的采样变调；力度小的音色更暗（真钢琴轻弹就是闷一点）；dur 后松键，余音很快收掉
-function pianoNote(t, midi, vel = 0.5, dur = 1) {
+function pianoNote(t, midi, vel = 0.5, dur = 1, dest) {   // dest 默认走音乐音量；提示音传 bus
   if (!PIANO.keys.length) return;
   let key = PIANO.keys[0];
   for (const k of PIANO.keys) if (Math.abs(k - midi) < Math.abs(key - midi)) key = k;
   const p = actx.createStereoPanner ? actx.createStereoPanner() : actx.createGain();
   if (p.pan) p.pan.value = THREE.MathUtils.clamp((midi - 64) / 40, -0.4, 0.4);   // 像坐在琴前：低音偏左、高音偏右
-  p.connect(musicOut());
+  p.connect(dest || musicOut());
   const g = actx.createGain(); g.connect(p);
   g.gain.setValueAtTime(Math.pow(vel, 1.5), t); g.gain.setTargetAtTime(0, t + dur, 0.1);
   const lp = filt('lowpass', 1200 + 9000 * vel * vel, 0.5, g);
@@ -2510,7 +2419,7 @@ spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
 window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; },
-  sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, birdSong, pianoNote, stinger, MUS, PIANO } };   // 调试用
+  sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
