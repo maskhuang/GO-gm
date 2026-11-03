@@ -2,6 +2,7 @@
 // 全部程序化生成：鸭妈妈（秋沙鸭）、雏鸭、河岸与植被、水面 shader、特效池
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const TAU = Math.PI * 2;
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -28,11 +29,13 @@ float shoreWob(float u, float ph) {
   return 0.22 * sin(k * 3.0 * u + ph) + 0.12 * sin(k * 7.0 * u + ph * 2.3) + 0.06 * sin(k * 13.0 * u + ph * 0.7);
 }`;
 const shoreX = (half, u, side) => half + 0.15 + shoreWobble(u, side);
-// 离岸线 lx 处的地面高度：水下缓坡 → 沙滩 → 草坡
+// 离岸线 lx 处的地面高度：水下缓坡 → 平沙滩 → 一道直上直下的草坪台阶 → 平整草坪
+// （Goose 的地面是一块块切得很干净的台面，侧面看得见，像桌上的模型）
+export const LAWN_X = 0.7, LAWN_H = 0.34;
 export function bankH(lx) {
   if (lx < 0) return lx * 0.3;
-  const s = THREE.MathUtils.smoothstep(lx, 0.3, 0.95);
-  return lx * 0.12 * (1 - s) + s * 0.32 + (lx > 1.2 ? Math.sin(lx * 1.3) * 0.05 : 0);
+  if (lx <= LAWN_X) return lx * 0.08;
+  return THREE.MathUtils.lerp(LAWN_X * 0.08, LAWN_H, Math.min(1, (lx - LAWN_X) / 0.006));
 }
 
 // ---------- 几何工具 ----------
@@ -52,7 +55,7 @@ function decorMesh(parts, shadow = true) {
   m.castShadow = shadow; m.receiveShadow = true; m.userData.skip = true;
   return m;
 }
-// 一头圆一头尖的水滴形（翅膀、尾羽）
+// 一头圆一头尖的水滴形（翅膀）
 function teardropGeo(seg = 20, sharp = 0.8) {
   const g = new THREE.SphereGeometry(1, seg, Math.round(seg * 0.7));
   const p = g.attributes.position;
@@ -65,68 +68,130 @@ function teardropGeo(seg = 20, sharp = 0.8) {
 }
 const TEAR = teardropGeo();
 
+// 扫掠体：沿一串点扫一圈圆，逐点给半径，两端收口。Goose 的角色是一体成型的光滑造型，不是球叠球——
+// 脖子、冠羽、嘴、尾巴都用它做成一根连续的形体。flat < 1 时把截面压扁（嘴、尾巴）
+function sweepGeo(n, radial = 12) {
+  const geo = new THREE.BufferGeometry(), vc = n * radial + 2;
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(vc * 3), 3));
+  const idx = [], s = n * radial, e = s + 1;
+  for (let i = 0; i < n - 1; i++) for (let j = 0; j < radial; j++) {
+    const a = i * radial + j, b = i * radial + (j + 1) % radial;
+    idx.push(a, b, a + radial, b, b + radial, a + radial);
+  }
+  for (let j = 0; j < radial; j++) {
+    const b = (j + 1) % radial;
+    idx.push(s, b, j, e, (n - 1) * radial + j, (n - 1) * radial + b);
+  }
+  geo.setIndex(idx);
+  geo.userData.sweep = { n, radial };
+  return geo;
+}
+const _T = new THREE.Vector3(), _N = new THREE.Vector3(), _B = new THREE.Vector3(), _w = new THREE.Vector3();
+function sweepSet(geo, pts, radii, flat = 1) {
+  const { n, radial } = geo.userData.sweep, pos = geo.attributes.position;
+  _T.subVectors(pts[1], pts[0]).normalize();
+  _N.set(1, 0, 0); if (Math.abs(_T.x) > 0.9) _N.set(0, 1, 0);
+  for (let i = 0; i < n; i++) {
+    _T.subVectors(pts[Math.min(n - 1, i + 1)], pts[Math.max(0, i - 1)]).normalize();
+    _N.addScaledVector(_T, -_N.dot(_T)).normalize();   // 平行移动标架：截面不会沿途拧麻花
+    _B.crossVectors(_T, _N);
+    for (let j = 0; j < radial; j++) {
+      const a = j / radial * TAU, r = radii[i];
+      _w.copy(pts[i]).addScaledVector(_N, Math.cos(a) * r).addScaledVector(_B, Math.sin(a) * r * flat);
+      pos.setXYZ(i * radial + j, _w.x, _w.y, _w.z);
+    }
+  }
+  pos.setXYZ(n * radial, pts[0].x, pts[0].y, pts[0].z);
+  pos.setXYZ(n * radial + 1, pts[n - 1].x, pts[n - 1].y, pts[n - 1].z);
+  pos.needsUpdate = true;
+  geo.computeVertexNormals(); geo.computeBoundingSphere();
+  return geo;
+}
+// 沿二次贝塞尔扫一根：r(t) 给半径
+function sweepCurve(a, b, c, rFn, { n = 10, radial = 12, flat = 1 } = {}) {
+  const curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(...a), new THREE.Vector3(...b), new THREE.Vector3(...c));
+  const pts = [], radii = [];
+  for (let i = 0; i < n; i++) { const t = i / (n - 1); pts.push(curve.getPoint(t)); radii.push(Math.max(0.002, rFn(t))); }
+  return sweepSet(sweepGeo(n, radial), pts, radii, flat);
+}
+// 圆头尖尾：0→1 先鼓起再收成尖
+const taper = (r0, r1, round = 0.25) => (t) => (t < round ? r0 * Math.sqrt(1 - ((round - t) / round) ** 2) : r0 + (r1 - r0) * ((t - round) / (1 - round)));
+
 // ---------- 鸭妈妈（秋沙鸭雌鸟：灰身、锈红头、后翘冠羽、白下巴、细长红嘴） ----------
+// Goose 的建模法：大块、光滑、一体成型；零件少而每件轮廓都清楚；没有羽毛细节，只有色块
 export function buildMother(duck, toon, BODY) {
-  // 身体：前胸抬起接脖子，尾部收窄上翘，腹部压平；背部可站立区仍接近椭球，物理不受影响
-  const bodyGeo = new THREE.SphereGeometry(1, 44, 30);
+  // 身体：前胸抬起接脖子，尾部收窄上翘成一个尖（玩具鸭的船形），腹部压平；背部可站立区仍接近椭球，物理不受影响
+  const bodyGeo = new THREE.SphereGeometry(1, 48, 32);
   const p = bodyGeo.attributes.position;
   for (let i = 0; i < p.count; i++) {
     let x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    if (z > 0.45) { const t = (z - 0.45) / 0.55; x *= 1 - 0.45 * t * t; y = y * (1 - 0.35 * t * t) + 0.5 * t * t * t; }
-    if (z < -0.35) { const t = (-z - 0.35) / 0.65; y += 0.16 * t * t * Math.max(0, (y + 1) / 2); }
-    if (y < 0) y *= 0.6;
+    if (z > 0.4) { const t = (z - 0.4) / 0.6; x *= 1 - 0.6 * t * t; y = y * (1 - 0.5 * t * t) + 0.62 * t * t * t; }
+    if (z < -0.35) { const t = (-z - 0.35) / 0.65; y += 0.18 * t * t * Math.max(0, (y + 1) / 2); }
+    if (y < 0) y *= 0.55;
     p.setXYZ(i, x, y, z);
   }
   bodyGeo.computeVertexNormals();
   const body = new THREE.Mesh(bodyGeo, toon(0xe6e9eb));   // 浅灰白：画面里最亮、最干净的东西
-  body.scale.set(BODY.rx, BODY.ry, BODY.rz); body.position.y = BODY.cy; body.castShadow = true;
+  body.scale.set(BODY.rx, BODY.ry, BODY.rz); body.position.y = BODY.cy; body.castShadow = body.receiveShadow = true;   // 接收宝宝的投影：不描边时靠影子把宝宝「放」在背上
   duck.add(body);
-  const chest = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), toon(0xfbfaf6));   // 白色前胸
-  chest.scale.set(0.52, 0.36, 0.38); chest.position.set(0, 0.28, -0.7); duck.add(chest);
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 18), toon(0xfbfaf6));   // 白色前胸
+  chest.scale.set(0.5, 0.36, 0.36); chest.position.set(0, 0.27, -0.72); chest.receiveShadow = true; duck.add(chest);
 
-  // 卡通比例：粗短脖子 + 大圆头 + 扁扁的大橙嘴 + 面无表情的小黑点眼（Goose 式的傻气）
-  const neck = new THREE.Mesh(new THREE.CapsuleGeometry(0.19, 0.18, 6, 14), toon(0xd0602f));
-  neck.position.set(0, 0.58, -0.86); neck.rotation.x = -0.5; neck.castShadow = true; duck.add(neck);
-
+  // 头：大圆头 + 扁平的长嘴 + 面无表情的小黑点眼（Goose 式的傻气）
   const head = new THREE.Group(); head.position.set(0, 0.88, -1.02); duck.add(head);
   head.userData.base = head.position.clone();
-  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.33, 28, 20), toon(0xd0602f));
-  headMesh.scale.set(0.95, 1, 1.05); headMesh.castShadow = true; head.add(headMesh);
-  const crest = new THREE.Group(); crest.position.set(0, 0.2, 0.1); head.add(crest);   // 秋沙鸭的乱糟糟朋克头
-  for (const [rx, rz, len, r] of [[0.6, 0, 0.34, 0.075], [0.95, 0.4, 0.3, 0.07], [0.95, -0.4, 0.3, 0.07], [1.3, 0.15, 0.38, 0.08],
-    [1.3, -0.2, 0.36, 0.08], [1.65, 0.45, 0.26, 0.065], [1.65, -0.45, 0.26, 0.065], [0.3, 0.25, 0.22, 0.055]]) {
-    const f = new THREE.Mesh(new THREE.ConeGeometry(r, len, 7), toon(0xb8502a));
-    f.geometry.translate(0, len / 2, 0); f.rotation.set(rx, 0, rz); f.castShadow = true; crest.add(f);
+  const headMesh = new THREE.Mesh(new THREE.SphereGeometry(0.31, 32, 22), toon(0xd0602f));
+  headMesh.scale.set(0.92, 1, 1.08); headMesh.castShadow = true; head.add(headMesh);
+
+  // 脖子：一根从身体里长出来、接到头上的光滑管子，每帧跟着头走——嘎！时整根伸长（Goose 伸脖子的那股劲）
+  const NECK_N = 12, neckGeo = sweepGeo(NECK_N, 16);
+  const neck = new THREE.Mesh(neckGeo, toon(0xd0602f)); neck.castShadow = true; neck.frustumCulled = false; duck.add(neck);
+  const nBase = new THREE.Vector3(0, 0.36, -0.7), nCtrl = new THREE.Vector3(), nCurve = new THREE.QuadraticBezierCurve3(nBase, nCtrl, head.position);
+  const nPts = Array.from({ length: NECK_N }, () => new THREE.Vector3());
+  const nRad = nPts.map((_, i) => { const t = i / (NECK_N - 1); return 0.25 + (0.19 - 0.25) * t - 0.055 * Math.sin(Math.PI * t); });
+  function update() {
+    const h = head.position;
+    nCtrl.set(h.x * 0.4, nBase.y + (h.y - nBase.y) * 0.8, nBase.z + (h.z - nBase.z) * 0.1);   // 先往上再往前：一点 S 弯
+    for (let i = 0; i < NECK_N; i++) nCurve.getPoint(i / (NECK_N - 1), nPts[i]);
+    sweepSet(neckGeo, nPts, nRad);
   }
-  const chin = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), toon(0xfbfaf6));
-  chin.scale.set(0.17, 0.09, 0.15); chin.position.set(0, -0.2, -0.13); head.add(chin);
-  const bill = new THREE.Mesh(new THREE.SphereGeometry(1, 22, 12), toon(0xf5913a));
-  bill.scale.set(0.13, 0.05, 0.25); bill.position.set(0, -0.07, -0.44); head.add(bill);
-  const jaw = new THREE.Group(); jaw.position.set(0, -0.1, -0.26); head.add(jaw);   // 下喙：嘎！时张开
-  const lower = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), toon(0xe8782c));
-  lower.scale.set(0.11, 0.035, 0.2); lower.position.set(0, 0, -0.16); jaw.add(lower);
+  update();
+
+  // 冠羽：三绺往后甩的乱毛，合成一个干净的剪影（秋沙鸭的朋克头）；scale/rotation 由外面驱动
+  const crest = new THREE.Group(); crest.position.set(0, 0.2, 0.06); head.add(crest);
+  const tuft = (dx, up, back, r) => sweepCurve([dx * 0.4, -0.06, -0.05], [dx * 0.8, up, back * 0.4], [dx * 1.6, up * 0.8, back], taper(r, 0.004, 0.3), { n: 10, radial: 10 });
+  const crestMesh = new THREE.Mesh(mergeGeometries([tuft(0, 0.2, 0.42, 0.12), tuft(0.1, 0.13, 0.32, 0.09), tuft(-0.1, 0.13, 0.32, 0.09)]), toon(0xb8502a));
+  crestMesh.castShadow = true; crest.add(crestMesh);
+
+  const chin = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), toon(0xfbfaf6));
+  chin.scale.set(0.17, 0.09, 0.15); chin.position.set(0, -0.19, -0.13); head.add(chin);
+  // 嘴：又长又扁的一整片，尖端微微下勾（秋沙鸭的钩嘴）
+  const bill = new THREE.Mesh(sweepCurve([0, -0.05, -0.18], [0, -0.06, -0.42], [0, -0.1, -0.62], taper(0.1, 0.035, 0.18), { n: 10, radial: 14, flat: 0.42 }), toon(0xf5913a));
+  bill.castShadow = true; head.add(bill);
+  const jaw = new THREE.Group(); jaw.position.set(0, -0.1, -0.24); head.add(jaw);   // 下喙：嘎！时张开
+  const lower = new THREE.Mesh(sweepCurve([0, 0, 0], [0, -0.005, -0.18], [0, -0.015, -0.34], taper(0.075, 0.025, 0.15), { n: 8, radial: 12, flat: 0.35 }), toon(0xe8782c));
+  jaw.add(lower);
   const eyes = [-1, 1].map(s => {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 10), toon(0x1d2a33));
-    eye.position.set(s * 0.215, 0.09, -0.17); head.add(eye); return eye;
+    eye.position.set(s * 0.2, 0.09, -0.16); head.add(eye); return eye;
   });
 
+  // 翅膀：收拢贴在身侧的一整片，翼尖一块深灰；不画羽毛
   const wings = [-1, 1].map(s => {
     const pivot = new THREE.Group(); pivot.position.set(s * 0.57, 0.44, 0.0); pivot.userData.side = s;
     const w = new THREE.Mesh(TEAR, toon(0xcdd2d6));
-    w.scale.set(0.18, 0.21, 0.64); w.position.set(s * 0.03, 0, 0.12); w.rotation.set(0, -s * 0.1, s * 0.3); w.castShadow = true;
-    const prim = new THREE.Mesh(TEAR, toon(0x9ba2a9));   // 深一点的翼尖
-    prim.scale.set(0.12, 0.13, 0.36); prim.position.set(-s * 0.02, 0.05, 0.52); prim.rotation.set(0, -s * 0.18, s * 0.3);
+    w.scale.set(0.17, 0.2, 0.66); w.position.set(s * 0.03, 0, 0.12); w.rotation.set(0, -s * 0.1, s * 0.3); w.castShadow = true;
+    const prim = new THREE.Mesh(TEAR, toon(0x9ba2a9));
+    prim.scale.set(0.11, 0.12, 0.36); prim.position.set(-s * 0.02, 0.05, 0.54); prim.rotation.set(0, -s * 0.16, s * 0.3);
     pivot.add(w, prim); duck.add(pivot);
     return pivot;
   });
 
-  const tail = new THREE.Group(); tail.position.set(0, 0.42, 0.86); tail.rotation.x = -0.45; duck.add(tail);
-  for (let i = 0; i < 3; i++) {   // 三片翘起来的胖尾羽
-    const a = (i - 1) * 0.35;
-    const f = new THREE.Mesh(TEAR, toon(0xcdd2d6));
-    f.scale.set(0.08, 0.04, 0.24); f.position.set(Math.sin(a) * 0.06, 0, 0.15); f.rotation.y = a; f.castShadow = true;
-    tail.add(f);
-  }
+  // 尾巴：一片往上翘的扁尖
+  const tail = new THREE.Group(); tail.position.set(0, 0.5, 0.82); tail.rotation.x = -0.35; duck.add(tail);
+  const tailMesh = new THREE.Mesh(sweepCurve([0, 0, -0.05], [0, 0.02, 0.15], [0, 0.1, 0.34], taper(0.17, 0.01, 0.2), { n: 8, radial: 12, flat: 0.35 }), toon(0xcdd2d6));
+  tailMesh.castShadow = true; tail.add(tailMesh);
 
   // 蹼：嘎！时伸到身后当台阶（䴙䴘就是这么干的）
   const fs = new THREE.Shape();
@@ -135,7 +200,7 @@ export function buildMother(duck, toon, BODY) {
   foot.material.side = THREE.DoubleSide; foot.rotation.x = -Math.PI / 2; foot.position.set(0, 0.02, 0.95); foot.visible = false;
   duck.add(foot);
 
-  return { body, chest, neck, head, jaw, crest, eyes, wings, tail, foot };
+  return { body, chest, neck, head, jaw, crest, eyes, wings, tail, foot, update };
 }
 
 // ---------- 雏鸭：干净的亮黄毛球 + 大头 + 呆毛；用呆毛和眼睛区分性格 ----------
@@ -253,26 +318,31 @@ export function animateDuckling(inner, t, st) {
 }
 
 // ---------- 河岸与植被 ----------
-const GREENS = [0x6fae4f, 0x86c45e, 0x5d9a45, 0x79b955];
-const FLOWER = [0xffffff, 0xffe066, 0xff9ec4, 0xc7a6ff];
+// Goose 的道具：几何体块大、边缘圆润、表面光滑、每件只有 1~2 个颜色；宁可少而胖，不要一根根细碎的线
+const GREENS = [0x7fa860, 0x8db36a, 0x739c57];
+const FLOWER = [0xffffff, 0xf3d36b, 0xf2a7bf, 0xc9b3e8];
+const BALL = new THREE.SphereGeometry(1, 18, 12);
+// 芦苇丛：几片宽宽的扁叶子往外散开 + 一两根香蒲
 function buildReeds() {
-  const parts = [];
-  const n = 6 + Math.floor(Math.random() * 5);
+  const parts = [], n = 5 + Math.floor(Math.random() * 3), col = pick(GREENS);
   for (let i = 0; i < n; i++) {
-    const h = rand(0.6, 1.3), x = rand(-0.25, 0.25), z = rand(-0.25, 0.25);
-    const g = new THREE.ConeGeometry(0.035, h, 4); g.translate(0, h / 2, 0);
-    parts.push(part(g, pick(GREENS), [x, -0.1, z], [rand(-0.2, 0.2), rand(0, TAU), rand(-0.25, 0.25)]));
-    if (i < 2) {   // 香蒲
-      const c = new THREE.CapsuleGeometry(0.045, 0.16, 3, 8);
-      parts.push(part(c, 0x8a5a35, [x, h - 0.05, z]));
-    }
+    const h = rand(0.55, 1.05), a = i / n * TAU + rand(-0.3, 0.3);
+    const g = new THREE.ConeGeometry(0.075, h, 8); g.translate(0, h / 2, 0);
+    parts.push(part(g, col, [Math.cos(a) * 0.06, -0.08, Math.sin(a) * 0.06], [Math.sin(a) * 0.32, a, -Math.cos(a) * 0.32], [1, 1, 0.38]));
+  }
+  for (let i = 0; i < 1 + (Math.random() < 0.5); i++) {
+    const h = rand(0.85, 1.15), x = rand(-0.06, 0.06);
+    const st = new THREE.CylinderGeometry(0.014, 0.014, h, 6); st.translate(0, h / 2, 0);
+    parts.push(part(st, 0x6f9455, [x, -0.08, x]));
+    parts.push(part(new THREE.CapsuleGeometry(0.05, 0.14, 4, 10), 0x9a6b48, [x, h - 0.08, x]));
   }
   return decorMesh(parts);
 }
+// 石头：光滑的扁鹅卵石，一大一小
 function buildRock() {
-  const parts = [], r = rand(0.18, 0.4);
-  parts.push(part(new THREE.DodecahedronGeometry(r, 0), 0xaab3b8, [0, 0, 0], [rand(0, 1), rand(0, TAU), 0], [1, 0.55, 0.85]));
-  if (Math.random() < 0.6) parts.push(part(new THREE.DodecahedronGeometry(r * 0.55, 0), 0x96a0a6, [r * 0.9, -0.02, rand(-0.2, 0.2)], [0, rand(0, TAU), 0], [1, 0.6, 0.9]));
+  const parts = [], r = rand(0.2, 0.4);
+  parts.push(part(BALL, 0xb3b8b6, [0, 0, 0], [0, rand(0, TAU), 0], [r, r * 0.5, r * 0.8]));
+  if (Math.random() < 0.6) parts.push(part(BALL, 0xa3a9a7, [r * 0.95, -0.02, rand(-0.2, 0.2)], [0, rand(0, TAU), 0], [r * 0.5, r * 0.3, r * 0.42]));
   const m = decorMesh(parts);
   const foam = new THREE.Mesh(new THREE.RingGeometry(r * 1.05, r * 1.3, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthWrite: false }));
   foam.rotation.x = -Math.PI / 2; foam.position.y = 0.06; foam.scale.set(1.15, 0.9, 1); m.add(foam);
@@ -282,81 +352,75 @@ function buildRock() {
 function buildLily() {
   const parts = [], n = 3 + Math.floor(Math.random() * 3);
   for (let i = 0; i < n; i++) {
-    const r = rand(0.14, 0.26), x = rand(-0.4, 0.4), z = rand(-0.4, 0.4);
-    parts.push(part(new THREE.CircleGeometry(r, 16, 0.3, TAU - 0.6), pick([0x6cbf5b, 0x7fcc66, 0x5fae52]), [x, 0.012 + i * 0.002, z], [-Math.PI / 2, 0, rand(0, TAU)]));
-    if (i === 0 && Math.random() < 0.6) {   // 睡莲花
-      const col = pick([0xfff6fa, 0xffb3d1]);
-      for (let k = 0; k < 7; k++) {
-        const a = k / 7 * TAU, pg = new THREE.ConeGeometry(0.035, 0.12, 4); pg.translate(0, 0.06, 0);
-        parts.push(part(pg, col, [x + Math.cos(a) * 0.02, 0.03, z + Math.sin(a) * 0.02], [Math.cos(a) * 0.9, 0, -Math.sin(a) * 0.9]));
-      }
-      parts.push(part(new THREE.SphereGeometry(0.03, 8, 6), 0xffd24f, [x, 0.05, z]));
+    const r = rand(0.15, 0.27), x = rand(-0.4, 0.4), z = rand(-0.4, 0.4);
+    parts.push(part(new THREE.CylinderGeometry(r, r, 0.02, 20, 1, false, 0.3, TAU - 0.6), pick([0x7fb365, 0x8abd6e, 0x74a85c]), [x, 0.012 + i * 0.002, z], [0, rand(0, TAU), 0]));   // 有厚度的小圆片
+    if (i === 0 && Math.random() < 0.6) {   // 睡莲花：一个胖胖的花苞
+      parts.push(part(BALL, pick([0xfff6fa, 0xf7bfd3]), [x, 0.07, z], [0, 0, 0], [0.07, 0.06, 0.07]));
+      parts.push(part(BALL, 0xf3d36b, [x, 0.12, z], [0, 0, 0], [0.025, 0.02, 0.025]));
     }
   }
   return decorMesh(parts, false);
 }
-function buildGrass() {
-  const parts = [];
-  for (let i = 0; i < 6; i++) {
-    const h = rand(0.15, 0.32), g = new THREE.ConeGeometry(0.03, h, 3); g.translate(0, h / 2, 0);
-    parts.push(part(g, pick([0x9ad776, 0x86c766, 0x7dbd5c]), [rand(-0.1, 0.1), 0, rand(-0.1, 0.1)], [rand(-0.4, 0.4), 0, rand(-0.4, 0.4)]));
-  }
-  return decorMesh(parts, false);
-}
+// 花坛：一个绿色小土包上顶着几颗彩色的圆球（Goose 的花都是这样一团一团的）
 function buildFlowers() {
-  const parts = [], col = pick(FLOWER), n = 3 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < n; i++) {
-    const x = rand(-0.2, 0.2), z = rand(-0.2, 0.2), h = rand(0.15, 0.28);
-    const stem = new THREE.CylinderGeometry(0.008, 0.008, h, 4); stem.translate(0, h / 2, 0);
-    parts.push(part(stem, 0x6fae4f, [x, 0, z]));
-    for (let k = 0; k < 5; k++) {
-      const a = k / 5 * TAU;
-      parts.push(part(new THREE.SphereGeometry(0.028, 6, 4), col, [x + Math.cos(a) * 0.03, h, z + Math.sin(a) * 0.03], [0, 0, 0], [1, 0.4, 1]));
-    }
-    parts.push(part(new THREE.SphereGeometry(0.018, 6, 4), col === 0xffe066 ? 0xf08a24 : 0xffd24f, [x, h + 0.01, z]));
+  const parts = [], col = pick(FLOWER), r = rand(0.18, 0.28);
+  parts.push(part(BALL, pick(GREENS), [0, 0, 0], [0, 0, 0], [r, r * 0.55, r * 0.9]));
+  for (let i = 0; i < 6; i++) {
+    const a = i / 6 * TAU + rand(-0.3, 0.3), d = rand(0.3, 0.75) * r;
+    parts.push(part(BALL, col, [Math.cos(a) * d, r * 0.45 + rand(0, 0.04), Math.sin(a) * d * 0.9], [0, 0, 0], [0.045, 0.04, 0.045]));
   }
   return decorMesh(parts, false);
 }
+// 树：直直的树干 + 一两团光滑的大圆冠；三成是细高的杨树
 function buildTree() {
-  const parts = [], h = rand(0.7, 1.1);
-  const trunk = new THREE.CylinderGeometry(0.09, 0.14, h, 7); trunk.translate(0, h / 2, 0);
-  parts.push(part(trunk, 0x9a6b48));
-  const blobs = 2 + Math.floor(Math.random() * 2);
-  for (let i = 0; i < blobs; i++) {
-    const r = rand(0.55, 0.9);
-    parts.push(part(new THREE.IcosahedronGeometry(r, 1), pick([0x5fb565, 0x6cc070, 0x52a65a]),
-      [rand(-0.4, 0.4), h + r * 0.6 + i * 0.25, rand(-0.4, 0.4)], [rand(0, 1), rand(0, 1), 0], [1, 0.82, 1]));
+  const parts = [], h = rand(0.6, 0.9), poplar = Math.random() < 0.3;
+  const trunk = new THREE.CylinderGeometry(0.08, 0.11, h, 10); trunk.translate(0, h / 2, 0);
+  parts.push(part(trunk, 0x8f6a4c));
+  if (poplar) {
+    const r = rand(0.42, 0.55);
+    parts.push(part(BALL, pick(GREENS), [0, h + r * 1.5, 0], [0, 0, 0], [r, r * 2.1, r]));
+  } else {
+    const r = rand(0.7, 0.95);
+    parts.push(part(BALL, pick(GREENS), [0, h + r * 0.75, 0], [0, 0, 0], [r, r * 0.85, r]));
+    if (Math.random() < 0.6) { const r2 = r * rand(0.5, 0.65), a = rand(0, TAU); parts.push(part(BALL, pick(GREENS), [Math.cos(a) * r * 0.75, h + r * 0.45, Math.sin(a) * r * 0.75], [0, 0, 0], [r2, r2 * 0.85, r2])); }
   }
   return decorMesh(parts);
 }
+// 树篱：圆角长方块，顺着河岸摆（Goose 里最有辨识度的道具之一）
+function buildHedge() {
+  const L = rand(1.0, 2.0), H = rand(0.4, 0.55), D = rand(0.45, 0.6);
+  return decorMesh([part(new RoundedBoxGeometry(D, H, L, 4, 0.16), pick([0x6f9a55, 0x7aa35d]), [0, H / 2, 0])]);
+}
 function buildBush() {
-  const parts = [], n = 2 + Math.floor(Math.random() * 2), berry = Math.random() < 0.4;
+  const parts = [], n = 1 + Math.floor(Math.random() * 2), berry = Math.random() < 0.35;
   for (let i = 0; i < n; i++) {
-    const r = rand(0.25, 0.42), x = rand(-0.3, 0.3), z = rand(-0.3, 0.3);
-    parts.push(part(new THREE.IcosahedronGeometry(r, 1), pick([0x5fae5a, 0x72bd63, 0x66b45c]), [x, r * 0.7, z], [rand(0, 1), rand(0, 1), 0], [1, 0.8, 1]));
-    if (berry) for (let k = 0; k < 4; k++) parts.push(part(new THREE.SphereGeometry(0.04, 6, 4), 0xe2484b, [x + rand(-r, r) * 0.7, r * rand(0.9, 1.3), z + rand(-r, r) * 0.7]));
+    const r = rand(0.28, 0.42), x = i * r * 1.1, z = rand(-0.1, 0.1);
+    parts.push(part(BALL, pick(GREENS), [x, r * 0.75, z], [0, 0, 0], [r, r * 0.85, r]));
+    if (berry) for (let k = 0; k < 3; k++) { const a = rand(0, TAU); parts.push(part(BALL, 0xd9534f, [x + Math.cos(a) * r * 0.7, r * rand(1.0, 1.4), z + Math.sin(a) * r * 0.7], [0, 0, 0], [0.045, 0.045, 0.045])); }
   }
   return decorMesh(parts);
 }
 
 const DECOR = [
-  // 类型, 每岸数量, 离岸线距离范围, 底部高度, 摇摆
-  { make: buildReeds, n: 18, off: [-0.25, 0.3], sway: 0.06 },
-  { make: buildRock, n: 7, off: [-0.55, 0.1], y: -0.06 },
-  { make: buildLily, n: 8, off: [-1.7, -0.6], float: true },
-  { make: buildGrass, n: 18, off: [0.5, 2.8], sway: 0.08 },   // 碎细节少一点，留出大色块
-  { make: buildFlowers, n: 18, off: [0.5, 2.5], sway: 0.05 },
-  { make: buildTree, n: 8, off: [1.0, 2.8] },
-  { make: buildBush, n: 9, off: [0.6, 2.3] },
+  // 类型, 每岸数量, 离岸线距离范围, 底部高度, 摇摆, align = 顺着河岸摆
+  { make: buildReeds, n: 14, off: [-0.25, 0.35], sway: 0.05 },
+  { make: buildRock, n: 6, off: [-0.55, 0.1], y: -0.06 },
+  { make: buildLily, n: 7, off: [-1.7, -0.6], float: true },
+  // 镜头视角窄，草坪只露出岸边一条：大件要贴着台阶摆才进得了画面
+  { make: buildFlowers, n: 9, off: [0.85, 1.6] },
+  { make: buildHedge, n: 7, off: [0.95, 1.15], align: true },
+  { make: buildTree, n: 9, off: [1.2, 2.4] },
+  { make: buildBush, n: 8, off: [0.85, 1.6] },
 ];
 const SPAN = 84, NEAR = 14;   // 装饰在 z ∈ [NEAR - SPAN, NEAR] 内循环
 
 export function createShore(scene, half) {
   // 河岸：每侧 3 块 40 长的地块循环滚动（岸线周期也是 40，所以无缝）
-  const LX = [-0.7, -0.35, -0.12, 0, 0.1, 0.2, 0.3, 0.42, 0.55, 0.7, 0.85, 1.0, 1.25, 1.6, 2.0, 2.6, 3.4, 4.4, 5.8, 7.6, 10];
+  const LX = [-0.7, -0.35, -0.12, 0, 0.1, 0.2, 0.3, 0.45, 0.6, 0.69, 0.7, 0.706, 0.72, 0.85, 1.1, 1.5, 2.0, 2.6, 3.4, 4.4, 5.8, 7.6, 10];
   const NZ = 100;
   // Goose 式：明亮、干净的大色块
-  const sand = new THREE.Color(0xeee3b8), wet = new THREE.Color(0xd3c89e), g1 = new THREE.Color(0x9ad47c), g2 = new THREE.Color(0xa8db8a), lip = new THREE.Color(0x8cc86d);
+  // 颜色收一点饱和度（Goose 是灰调的鼠尾草绿 + 奶油沙色），黄色的宝宝才是画面里最跳的东西
+  const sand = new THREE.Color(0xece0bb), wet = new THREE.Color(0xd2c8a2), g1 = new THREE.Color(0xa5c47f), g2 = new THREE.Color(0xb0cc8b), wall = new THREE.Color(0x7f9f5e);
   const tiles = [];
   for (const side of [-1, 1]) {
     const pos = [], col = [], idx = [], c = new THREE.Color();
@@ -364,12 +428,11 @@ export function createShore(scene, half) {
       const lz = -SHORE_PERIOD / 2 + SHORE_PERIOD * j / NZ;
       for (let i = 0; i < LX.length; i++) {
         const lx = LX[i];
-        const bump = lx > 1.2 ? 0.04 * Math.sin(lz * 1.7 + lx * 2.1) * Math.sin(lz * 0.6 - lx) : 0;
-        pos.push(side * (shoreX(half, lz, side) + lx), bankH(lx) + bump, lz);
+        pos.push(side * (shoreX(half, lz, side) + lx), bankH(lx), lz);   // 草坪是平的：Goose 的地面干干净净
         if (lx < 0.05) c.copy(wet).lerp(sand, THREE.MathUtils.smoothstep(lx, -0.3, 0.05));
-        else if (lx < 0.45) c.copy(sand);
-        else if (lx < 0.75) c.copy(sand).lerp(lip, (lx - 0.45) / 0.3);
-        else c.copy(g1).lerp(g2, 0.5 + 0.5 * Math.sin(lz * 0.9 + lx * 1.3) * Math.sin(lz * 0.37 + lx * 0.4));
+        else if (lx < 0.695) c.copy(sand);
+        else if (lx < 0.71) c.copy(wall);                                 // 台阶侧面：深一档的绿
+        else c.copy(g1).lerp(g2, 0.5 + 0.5 * Math.sin(lz * 0.5 + lx * 0.8) * Math.sin(lz * 0.21 + lx * 0.3));   // 大块、慢变化的色斑
         col.push(c.r, c.g, c.b);
       }
     }
@@ -394,7 +457,7 @@ export function createShore(scene, half) {
     const lx = it.off;
     it.m.position.x = it.side * (shoreX(half, u, it.side) + lx);
     it.m.position.y = it.def.float ? 0 : (it.def.y ?? 0) + Math.max(bankH(lx), -0.15);
-    it.m.rotation.y = rand(0, TAU);
+    it.m.rotation.y = it.def.align ? rand(-0.08, 0.08) : rand(0, TAU);
     it.m.scale.setScalar(rand(0.85, 1.2));
   }
   for (const def of DECOR) for (const side of [-1, 1]) for (let i = 0; i < def.n; i++) {
@@ -458,7 +521,7 @@ export function createWater(half) {
     uTime: { value: 0 }, uDist: { value: 0 }, uHalf: { value: half }, uRipple: { value: rippleMask() },
     uFocus: { value: new THREE.Vector2() }, uFocusAmt: { value: 1 },
     uRapA: { value: 0 }, uRapB: { value: 0 }, uRapOn: { value: 0 },   // 急流区（地面坐标 uRapA < u < uRapB），uRapA 处是落差线
-    uDeep: { value: new THREE.Color(0x4ab3ca) }, uShallow: { value: new THREE.Color(0xa3e6da) },
+    uDeep: { value: new THREE.Color(0x5aaebb) }, uShallow: { value: new THREE.Color(0xa6dbd0) },
     uFoam: { value: new THREE.Color(0xffffff) },
   };
   const material = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: GRAD_A });
@@ -490,7 +553,7 @@ ${SHORE_GLSL}`)
   col *= 0.94 + 0.12 * vnoise(vec2(vWPos.x * 0.9, uw * 0.25));
   float rip = texture2D(uRipple, vec2(vWPos.x / 3.2, uw / 5.0)).r;
   float fd = distance(vWPos.xz, uFocus);                          // 离鸭妈妈的距离
-  col = mix(col, uFoam, rip * mix(0.26, 0.18, uFocusAmt) * smoothstep(0.2, 0.8, d));
+  col = mix(col, uFoam, rip * mix(0.16, 0.12, uFocusAmt) * smoothstep(0.2, 0.8, d));
   float fn = vnoise(vec2(u * 2.2, uTime * 0.7));
   float foam = 1.0 - smoothstep(0.05, 0.11 + fn * 0.1, d);       // 贴岸的白沫
   float w = fract(uTime * 0.3 + vnoise(vec2(u * 0.15, 0.0)) * 0.6);

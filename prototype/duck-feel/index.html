@@ -75,7 +75,7 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=9';
+import * as ART from './art.js?v=11';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
 import { createNotebook, createGlyph } from './notebook.js?v=8';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
@@ -159,24 +159,26 @@ const DEFAULTS = {
   coverTime: 1.0,        // 嘎！后护崽持续多久：背上的缩成团、水里的潜下去
   artStyle: 'A',         // 美术风格：orig 原版 / A 扁平 / B 绘本 / C 低模
   cameraMode: 'top',     // top = 3D 俯视；chase = 身后追尾
-  camHeight: 7,          // 俯视：镜头距离
-  camAngle: 22,          // 俯视：偏离垂直的角度（0 = 正上方）
+  camHeight: 11.5,       // 俯视：镜头距离
+  camAngle: 34,          // 俯视：偏离垂直的角度（0 = 正上方）；斜一点才看得到东西的侧面
+  camFov: 35,            // 俯视：视角。窄视角 + 拉远 = Goose 那种桌上模型的感觉（近大远小不明显）
   showLevel: false,      // 俯视：水平仪（具身化 UI：默认关，看鸭妈妈身体倾斜就够）
   chibi: 0.4,            // 宝宝夸张度：0 = 朴素，1 = 大头大眼长呆毛、动作很多
-  post: 'cel',           // 后期风格化：none 原样 / cel 描边卡通 / paint 颜料画 / riso 孔版印刷（V 切换）
+  post: 'none',          // 后期风格化：none 原样 / cel 描边卡通 / paint 颜料画 / riso 孔版印刷（V 切换）。Goose 没有描边，默认不描
   debugUI: false,        // 调试用：显示 HUD、文字标签、目标红圈、提示条（正式玩法是具身化 UI，不出现文字）
   focus: false,          // 画面聚焦：环境压暗 + 边缘虚化（F 切换；默认关，保持 Goose 式的明亮）
   cameraFollowRoll: 0.3, // 追尾：镜头跟随倾斜比例（0 = 不跟）
   showLabels: false,
   invertY: false,
-  uiVersion: 4,
+  uiVersion: 5,
 };
 let P = { ...DEFAULTS };
 try {
   const saved = JSON.parse(localStorage.getItem('duckShiftParams_v2') || '{}');
   if ((saved.uiVersion || 0) < 3) { for (const k of ['showLevel', 'showLabels', 'post', 'focus']) delete saved[k]; }   // 换成具身化 UI：旧存档里的 UI 开关作废
   if ((saved.uiVersion || 0) < 4) { for (const k of ['weightInfluence', 'staticFriction', 'kineticFriction', 'domeCurvature', 'wanderStrength']) delete saved[k]; }   // 背上太稳：这几项平衡参数重置
-  saved.uiVersion = 4;
+  if ((saved.uiVersion || 0) < 5) { for (const k of ['camHeight', 'camAngle', 'post']) delete saved[k]; }   // Goose 式镜头：窄视角、斜一点
+  saved.uiVersion = 5;
   Object.assign(P, saved);
 } catch (e) {}
 const saveParams = () => { try { localStorage.setItem('duckShiftParams_v2', JSON.stringify(P)); } catch (e) {} };
@@ -1962,6 +1964,7 @@ function syncVisuals(realDt, simDt) {
   const hb = head.userData.base, bob = Math.sin(t * 4.4);
   const lookBack = THREE.MathUtils.smoothstep(Math.abs(S.headYaw), 1.0, 2.1);   // 回头时把头抬高，越过背上的宝宝
   head.position.set(0, hb.y + bob * 0.015 + q * 0.12 + lookBack * 0.12, hb.z - Math.max(0, bob) * 0.025 - q * 0.16 + lookBack * 0.05);
+  M.update();   // 脖子是一整根管子，跟着头伸缩
   // 冠羽 = 嘎！的冷却：冷却中趴下去，好了「噗」地竖起来（加一声轻响）
   const cdK = P.quackCooldown > 0 ? S.quackCd / P.quackCooldown : 0;
   if (S.wasCd && cdK <= 0) { S.crestPop = 0.35; bloop(520, 0.08); }
@@ -2098,11 +2101,13 @@ function syncVisuals(realDt, simDt) {
 
   // 镜头
   if (top) {
+    if (camera.fov !== P.camFov) { camera.fov = P.camFov; camera.updateProjectionMatrix(); }
     const a = THREE.MathUtils.degToRad(P.camAngle);
     camera.position.set(S.x * 0.8, P.camHeight * Math.cos(a), S.z * 0.6 + P.camHeight * Math.sin(a));
     camera.lookAt(S.x * 0.8, 0, S.z * 0.6);
     if (S.shake > 0) camera.position.add(tmpV.set(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(S.shake * 0.25));
   } else {
+    if (camera.fov !== 55) { camera.fov = 55; camera.updateProjectionMatrix(); }
     camera.position.set(S.x * 0.7, 3.4, S.z + 5.2);
     camera.lookAt(S.x * 0.85, 0.6, S.z - 0.8);
     camera.rotateZ(-S.roll * P.cameraFollowRoll);
@@ -2293,6 +2298,7 @@ const f5 = gui.addFolder('镜头与特效');
 f5.add(P, 'cameraMode', { '3D 俯视': 'top', '身后追尾': 'chase' }).name('视角').onChange(onCh);
 f5.add(P, 'camHeight', 4, 18, 0.5).name('俯视：镜头距离').onChange(onCh);
 f5.add(P, 'camAngle', 0, 60, 1).name('俯视：倾斜角°').onChange(onCh);
+f5.add(P, 'camFov', 20, 60, 1).name('俯视：视角°').onChange(onCh);
 f5.add(P, 'showLevel').name('俯视：水平仪').onChange(onCh);
 f5.add(P, 'focus').name('画面聚焦（F）').onChange(() => { applyFocus(); onCh(); });
 f5.add(P, 'cameraFollowRoll', -1, 1, 0.05).name('追尾：镜头跟随倾斜').onChange(onCh);
