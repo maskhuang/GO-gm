@@ -681,6 +681,85 @@ export function createRain(scene, n = 700) {
   };
 }
 
+// 被丢弃的钓线：一团乱线 + 红白浮漂。返回 { group, trail }；trail 是从鸭妈妈脚上拖到线团的那根线（缠上后才显示）
+export function buildTangle(toon) {
+  const g = new THREE.Group();
+  const bob = new THREE.Group();
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8, 0, TAU, 0, Math.PI / 2), toon(0xe8483b));
+  const bot = new THREE.Mesh(new THREE.SphereGeometry(0.09, 12, 8, 0, TAU, Math.PI / 2, Math.PI / 2), toon(0xfafaf7));
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.14, 5), toon(0xe8483b)); stick.position.y = 0.12;
+  bob.add(top, bot, stick); bob.position.y = 0.03; g.add(bob);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xe9f1f6 });
+  for (let k = 0; k < 3; k++) {   // 几圈乱缠的线
+    const pts = [];
+    for (let i = 0; i < 8; i++) { const a = i / 8 * TAU; pts.push(new THREE.Vector3(Math.cos(a) * rand(0.15, 0.45), 0.03, Math.sin(a) * rand(0.15, 0.45))); }
+    const c = new THREE.CatmullRomCurve3(pts, true);
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(c.getPoints(60)), lineMat));
+  }
+  const tg = new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * 12), 3));
+  const trail = new THREE.Line(tg, lineMat); trail.frustumCulled = false; trail.visible = false;
+  g.userData.bob = bob;
+  return { group: g, trail };
+}
+
+// 别家的鸭妈妈（绿头鸭母鸭）：麻褐色、橙嘴带黑斑、翅上一块蓝紫色翼镜
+// userData.pose(rear, wing)：rear = 立起来伸脖子 0..1，wing = 张翅 0..1
+export function buildHen(toon) {
+  const g = new THREE.Group();
+  const brown = toon(0xa27b52), dark = toon(0x6e5034), cream = toon(0xd8bf98);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 14), brown); body.scale.set(0.42, 0.28, 0.62); body.position.y = 0.16; g.add(body);
+  const tail = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.3, 8), dark); tail.rotation.x = Math.PI / 2 + 0.4; tail.position.set(0, 0.24, 0.62); g.add(tail);
+  const wings = [-1, 1].map(s => {
+    const pv = new THREE.Group(); pv.position.set(s * 0.3, 0.3, 0.05); g.add(pv);
+    const w = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), dark); w.scale.set(0.14, 0.09, 0.42); w.position.set(s * 0.06, 0, 0.05); pv.add(w);
+    const spec = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.03, 0.16), toon(0x4a5fd0)); spec.position.set(s * 0.15, 0.03, 0.12); pv.add(spec);
+    for (const dz of [-0.09, 0.09]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.032, 0.02), toon(0xfafaf7)); b.position.set(s * 0.15, 0.03, 0.12 + dz); pv.add(b); }
+    pv.userData.side = s; return pv;
+  });
+  const neck = new THREE.Group(); neck.position.set(0, 0.3, -0.42); g.add(neck);
+  const neckM = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.26, 10), brown); neckM.position.y = 0.1; neck.add(neckM);
+  const head = new THREE.Group(); head.position.y = 0.27; neck.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.15, 14, 12), cream); skull.scale.set(1, 0.95, 1.1); head.add(skull);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.152, 14, 12, 0, Math.PI * 2, 0, 1.0), dark); cap.position.y = 0.01; head.add(cap);
+  const bill = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.05, 0.2), toon(0xe8873a)); bill.position.set(0, -0.03, -0.2); head.add(bill);
+  const spot = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.052, 0.07), toon(0x2a2018)); spot.position.set(0, -0.028, -0.22); head.add(spot);
+  for (const s of [-1, 1]) {
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.025, 0.18), dark); stripe.position.set(s * 0.14, 0.03, -0.01); head.add(stripe);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 6), toon(0x1d2430)); eye.position.set(s * 0.13, 0.035, -0.06); head.add(eye);
+  }
+  g.userData.pose = (rear, wing) => {
+    neck.rotation.x = 0.35 - rear * 0.75;   // 平时脖子前探，立起来时往后仰、挺胸
+    neck.position.y = 0.3 + rear * 0.12; neckM.scale.y = 1 + rear * 0.6; head.position.y = 0.27 + rear * 0.12;
+    head.rotation.x = -0.3 + rear * 0.6;
+    body.rotation.x = -rear * 0.35;
+    for (const w of wings) w.rotation.z = w.userData.side * (0.05 + wing * 1.1);
+  };
+  g.userData.pose(0, 0);
+  g.scale.setScalar(0.85);
+  return g;
+}
+
+// 蜉蝣羽化：水面上一团上下飞舞的小白点；update(t, x, z, r, k)
+export function createHatch(scene, n = 90) {
+  const pos = new Float32Array(n * 3), seeds = [];
+  for (let i = 0; i < n; i++) seeds.push([rand(0, TAU), rand(0.2, 1), rand(0.1, 1.1), rand(1, 3), rand(0, TAU)]);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xfff4c8, size: 0.07, transparent: true, opacity: 0, depthWrite: false });
+  const pts = new THREE.Points(geo, mat); pts.frustumCulled = false; pts.visible = false; pts.renderOrder = 7; scene.add(pts);
+  return {
+    update(t, x, z, r, k) {
+      pts.visible = k > 0.01; mat.opacity = 0.95 * k;
+      if (!pts.visible) return;
+      for (let i = 0; i < n; i++) {
+        const [a, rr, h, sp, ph] = seeds[i], aa = a + t * sp * 0.4;
+        pos[i * 3] = x + Math.cos(aa) * rr * r; pos[i * 3 + 2] = z + Math.sin(aa) * rr * r * 0.8;
+        pos[i * 3 + 1] = 0.08 + h * (0.5 + 0.5 * Math.sin(t * sp + ph));   // 蜉蝣的婚飞：一上一下
+      }
+      geo.attributes.position.needsUpdate = true;
+    },
+  };
+}
+
 // ---------- 特效：水圈 / 尾迹 / 嘎！气泡 / 星星 ----------
 function popTexture(kind) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 160;
