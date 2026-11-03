@@ -171,6 +171,7 @@ const DEFAULTS = {
   showLabels: false,
   invertY: false,
   volume: 0.7,           // 总音量
+  musicVolume: 0.35,     // 背景音乐音量（0 = 关）：压在音效底下
   muted: false,          // M 静音
   uiVersion: 5,
 };
@@ -597,6 +598,112 @@ function ambienceTick(dt, playing) {
   }
   if ((AMB.bird -= dt) <= 0) { AMB.bird = 4 + Math.random() * 7; if (playing && RN.k < 0.4) birdSong(); }   // 下雨鸟就不叫了
   slowLP.frequency.setTargetAtTime(S.slowMo > 0 ? 1600 : 18000, t, 0.06);   // 扒边救援的慢动作：整个世界闷下去（教学放慢时不闷）
+}
+
+// ---------- 背景音乐：随局势变化的生成式钢琴（Goose 的配乐就是会跟着动作变紧张的钢琴） ----------
+// 平静时：F 大调，稀疏、俏皮的旋律 + 柔和的低音，常常留白
+// 危险时（鹰俯冲、苍鹭瞄准、水下黑影、宝宝扒边、急流）：转小调，左手偷偷摸摸的断奏，右手快速跑动，速度加快
+// 到家 / 失败各有一小句收尾
+const MIDI = (m) => 440 * 2 ** ((m - 69) / 12);
+const SCALE = [0, 2, 4, 5, 7, 9, 11];   // 大调音阶的半音位置
+const KEY = 65;                          // F4
+const PROG_CALM = [[0, 4, 7], [9, 12, 16], [5, 9, 12], [7, 11, 14]];      // F  Dm  B♭  C（相对 F 的半音）
+const PROG_TENSE = [[2, 5, 9], [-2, 2, 5], [7, 10, 14], [4, 8, 11]];      // Dm B♭ Gm A：小调里打转，A 大三和弦把劲憋住
+const MUS = { next: 0, step: 0, int: 0, deg: 2, bar: 0, rest: false, gain: null, was: { arrived: false, failed: false } };
+function musicOut() {
+  if (!MUS.gain) { MUS.gain = actx.createGain(); MUS.gain.gain.value = 0; MUS.gain.connect(bus); }
+  return MUS.gain;
+}
+// 钢琴音色：几个泛音叠在一起，高泛音衰减得更快；低音区余音更长。加一下很轻的击弦声
+function pianoNote(t, midi, vel = 0.3, len = 0) {
+  const f = MIDI(midi), sustain = THREE.MathUtils.clamp(2.6 - (midi - 40) * 0.045, 0.45, 2.6);
+  const p = actx.createStereoPanner ? actx.createStereoPanner() : actx.createGain();
+  if (p.pan) p.pan.value = THREE.MathUtils.clamp((midi - 64) / 30, -0.5, 0.5);   // 像坐在琴前：低音偏左、高音偏右
+  p.connect(musicOut());
+  const stop = t + (len ? len + 0.12 : sustain);
+  for (const [k, amp, dk] of [[1, 1, 1], [2, 0.4, 0.55], [3, 0.14, 0.35], [4, 0.06, 0.25]]) {
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(vel * amp, t + 0.006);
+    g.gain.setTargetAtTime(0, t + 0.006, sustain * dk / 4);
+    if (len) g.gain.setTargetAtTime(0, t + len, 0.03);   // 断奏：手指抬起来
+    g.connect(p);
+    const o = actx.createOscillator(); o.frequency.value = f * k * (1 + 0.0004 * k * k);   // 一点点琴弦的不谐和
+    o.connect(g); o.start(t); o.stop(stop);
+  }
+  const hg = env(p, t, 0.001, vel * 0.08, 0.025);   // 击弦
+  noise(t, 0.025, filt('bandpass', Math.min(6000, f * 4), 1, hg));
+}
+const degMidi = (deg, base = KEY) => base + 12 * Math.floor(deg / 7) + SCALE[((deg % 7) + 7) % 7];
+function nearestChordTone(midi, chord, root) {
+  let best = midi, bd = 99;
+  for (const c of chord) for (let o = -24; o <= 24; o += 12) { const m = root + c + o; if (Math.abs(m - midi) < bd) { bd = Math.abs(m - midi); best = m; } }
+  return best;
+}
+function musicTarget() {
+  let k = 0;
+  if (hawkState.phase === 'dive' || HR.phase === 'cock' || HR.phase === 'strike' || L.phase === 'windup' || GL.phase === 'swoop') k = 1;
+  else if (RP.on || RV.phase === 'warn' || RV.phase === 'charge' || hawkState.phase === 'circle' || L.phase === 'hunt' || FL.phase === 'snag') k = 0.6;
+  else if (ducklings.some(d => d.state === 'onBack' && d.teeter > 0)) k = 0.45;   // 扒边太频繁：只加点和弦碎音，不切成紧张模式（慢动作的闷声已经标出了这一刻）
+  else if (ducklings.some(d => d.state === 'floating' || d.state === 'falling')) k = 0.3;
+  return k;
+}
+function playStep(t, s) {
+  const k = MUS.int, tense = k > 0.5, prog = tense ? PROG_TENSE : PROG_CALM;
+  const bar = Math.floor(s / 16), pos = s % 16, chord = prog[bar % 4], root = KEY - 12;
+  if (pos === 0) MUS.rest = !tense && Math.random() < 0.25 * (1 - k);   // 平静时常常整小节留白：Goose 的音乐很会安静
+  // 左手
+  if (tense) {
+    if (pos % 2 === 0) pianoNote(t, root - 12 + chord[0] + (pos % 4 === 2 ? 12 : 0), 0.2 + 0.08 * k, 0.09);   // 蹑手蹑脚的八分音符：根音-八度来回
+  } else {
+    if (pos === 0) pianoNote(t, root - 12 + chord[0], 0.22);
+    if (pos === 8 && Math.random() < 0.7) pianoNote(t, root - 12 + chord[0] + 7, 0.16);
+    if (k > 0.2 && (pos === 4 || pos === 12)) pianoNote(t, root + chord[1], 0.1, 0.12);   // 有宝宝在水里：加点八分的和弦碎音
+  }
+  // 右手
+  if (tense) {
+    const run = k > 0.85;   // 最紧张：十六分音符的快速跑动
+    if (run || pos % 2 === 0) {
+      if (Math.random() < 0.85) {
+        MUS.deg += (Math.random() < 0.5 ? 1 : -1) * (Math.random() < 0.2 ? 2 : 1);
+        MUS.deg = THREE.MathUtils.clamp(MUS.deg, -3, 9);
+        let m = degMidi(MUS.deg);   // D 小调和 F 大调同一组音
+        if (pos % 4 === 0) m = nearestChordTone(m, chord, KEY - 12);
+        pianoNote(t, m, 0.14 + 0.06 * Math.random(), run ? 0.07 : 0.1);
+      }
+    }
+  } else if (!MUS.rest) {
+    const RHYTHM = [0, 3, 6, 8, 10, 12, 14];
+    if (RHYTHM.includes(pos) && Math.random() < (pos === 0 || pos === 8 ? 0.85 : 0.4)) {
+      MUS.deg += [-2, -1, -1, 1, 1, 2, 0][Math.floor(Math.random() * 7)];
+      MUS.deg = THREE.MathUtils.clamp(MUS.deg, 0, 11);
+      let m = degMidi(MUS.deg);
+      if (pos === 0 || pos === 8) m = nearestChordTone(m, chord, KEY);   // 强拍落在和弦音上
+      const stacc = Math.random() < 0.35;
+      pianoNote(t, m, 0.16 + 0.06 * Math.random(), stacc ? 0.1 : 0);
+      if (stacc && Math.random() < 0.4) pianoNote(t + 0.08, m + (Math.random() < 0.5 ? 2 : -1), 0.12, 0.08);   // 俏皮的倚音
+    }
+  }
+}
+function stinger(happy) {
+  const t = actx.currentTime + 0.05;
+  if (happy) [0, 4, 7, 12, 16].forEach((n, i) => pianoNote(t + i * 0.11, KEY + n, 0.24));   // 回家：往上的琶音
+  else [7, 6, 5, 4].forEach((n, i) => pianoNote(t + i * 0.32, KEY + n - 12, 0.2, i < 3 ? 0.22 : 0));   // 失败：一步一步往下的「哇哇哇」
+  if (happy) for (const n of [0, 4, 7]) pianoNote(t + 0.6, KEY - 12 + n, 0.18);
+  MUS.next = t + (happy ? 2.2 : 1.6); MUS.int = 0;   // 收尾之后安静一会儿再接着弹
+}
+function musicTick(dt, playing) {
+  if (!actx) return;
+  const t = actx.currentTime;
+  const failed = S.over && C.pending === 'retry';
+  if (S.arrived && !MUS.was.arrived) stinger(true);
+  else if (failed && !MUS.was.failed) stinger(false);
+  MUS.was.arrived = S.arrived; MUS.was.failed = failed;
+  const target = playing && !S.arrived ? musicTarget() : 0;
+  MUS.int += (target - MUS.int) * Math.min(1, dt * (target > MUS.int ? 4 : 0.5));   // 紧张来得快、退得慢
+  musicOut().gain.setTargetAtTime(P.musicVolume * (playing ? 1 : 0.55), t, 0.5);
+  if (MUS.next < t - 0.25) MUS.next = t + 0.05;   // 切到后台回来：别一下补弹一堆
+  const bpm = 92 + 22 * MUS.int;
+  while (MUS.next < t + 0.12) { playStep(MUS.next, MUS.step++); MUS.next += 60 / bpm / 4; }
 }
 
 // ---------- 水花粒子 ----------
@@ -2284,6 +2391,7 @@ function frame(now) {
   }
   if (!(S.started && !S.paused && !S.over)) rumbleGain(0);
   ambienceTick(realDt, S.started && !S.paused && !S.over);
+  musicTick(realDt, S.started && !S.paused && !S.over);
   syncVisuals(realDt, simDt);
   updateTutorial(realDt);
   book.update(realDt);
@@ -2317,6 +2425,7 @@ f2.add(P, 'swell', 0, 4, 0.1).name('水面涌动').onChange(onCh);
 f2.add(P, 'showLabels').name('显示性格标签').onChange(onCh);
 gui.add(P, 'chibi', 0, 1, 0.05).name('🐥 宝宝夸张度').onChange(onCh);
 gui.add(P, 'volume', 0, 1, 0.05).name('🔊 音量（M 静音）').onChange(() => { onCh(); setVolume(); });
+gui.add(P, 'musicVolume', 0, 1, 0.05).name('🎹 音乐音量').onChange(onCh);
 gui.add(P, 'debugUI').name('🔧 调试 UI（HUD/文字/红圈）').onChange(() => { applyFocus(); onCh(); });
 gui.add(P, 'post', Object.fromEntries(Object.entries(POST_NAMES).map(([k, v]) => [v, k]))).name('🖌 画面风格（V）').onChange(onCh);
 const f6 = gui.addFolder('落水与爬回（嘎！接人）');
@@ -2418,7 +2527,7 @@ spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
 window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; },
-  sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, birdSong } };   // 调试用
+  sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, birdSong, pianoNote, stinger, MUS } };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
