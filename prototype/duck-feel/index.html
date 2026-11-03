@@ -54,9 +54,9 @@
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
-  "lil-gui": "https://cdn.jsdelivr.net/npm/lil-gui@0.20.0/dist/lil-gui.esm.min.js"
+  "three": "./vendor/three/build/three.module.js",
+  "three/addons/": "./vendor/three/examples/jsm/",
+  "lil-gui": "./vendor/lil-gui/lil-gui.esm.min.js"
 } }
 </script>
 </head>
@@ -77,7 +77,7 @@ import * as THREE from 'three';
 import GUI from 'lil-gui';
 import * as ART from './art.js?v=13';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
-import { createNotebook, createGlyph } from './notebook.js?v=8';
+import { createNotebook, createGlyph } from './notebook.js?v=10';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
 const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
@@ -877,13 +877,19 @@ addEventListener('pointermove', e => {
   mouse.y = THREE.MathUtils.clamp(-((e.clientY / innerHeight) * 2 - 1), -1, 1);
 });
 addEventListener('keydown', e => {
-  if (book.visible) { if (!e.repeat && (e.key === 'Shift' || e.code === 'Space' || e.code === 'Enter')) { onContinue(); e.preventDefault(); } return; }   // 翻过这一页
+  if (book.visible) {
+    if (e.repeat) return;
+    if (e.code === 'KeyC') toggleCredits();
+    else if (S.paused && !creditsOpen && pauseSetting(e.code)) e.preventDefault();
+    else if (e.key === 'Shift' || e.code === 'Space' || e.code === 'Enter') { onContinue(); e.preventDefault(); }   // 翻过这一页
+    return;
+  }
   if (e.key === 'Shift') { if (!e.repeat) { quack(); S.holdT = 0; } S.shiftDown = true; }
   else if (!DEV && /^(KeyR|KeyH|KeyV|KeyF|Digit[1-4])$/.test(e.code)) return;   // 开发快捷键
   else if (e.code === 'KeyR') { if (S.over) proceed(); else { C.roster = C.startRoster.slice(); reset(); S.started = true; } }   // R：重来这一天
   else if (e.code === 'Space') { if (S.started && !S.over && !S.arrived) { S.paused = true; S.shiftDown = false; book.show(pausePage()); } e.preventDefault(); }
   else if (e.code === 'KeyH') gui._hidden ? gui.show() : gui.hide();
-  else if (e.code === 'KeyM') { P.muted = !P.muted; saveParams(); setVolume(); alertless(P.muted ? '静音' : '声音：开'); }
+  else if (e.code === 'KeyM') { toggleMute(); alertless(P.muted ? 'Sound off' : 'Sound on'); }
   else if (e.code === 'KeyV') { const ks = Object.keys(POST_MODES); P.post = ks[(ks.indexOf(P.post) + 1) % ks.length]; saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); alertless('画面风格：' + POST_NAMES[P.post]); }
   else if (e.code === 'KeyF') { P.focus = !P.focus; applyFocus(); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
   else if (/^Digit[1-4]$/.test(e.code)) { applyStyle(['orig', 'A', 'B', 'C'][+e.code.slice(5) - 1]); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
@@ -894,6 +900,7 @@ addEventListener('blur', () => { S.shiftDown = false; });
 function onContinue() {
   if (!book.visible) return;
   ensureAudio();
+  if (creditsOpen) { toggleCredits(); return; }   // 制作人员页：翻回来时的那一页
   if (S.paused && S.started && !S.over) { S.paused = false; book.hide(); return; }
   if (S.over) proceed();
   S.started = true; book.hide();
@@ -904,7 +911,7 @@ const plain = (html) => html.replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, ''
 function titlePage() {
   return { big: 'Duck Shift', sub: "A Mother Duck's First Two Weeks",
     lines: ["Your ducklings hatched yesterday. Carry them down the river until they're grown.", ...(best ? [`Best run: ${best.home} grew up`] : [])],
-    footer: '(click to begin)' };
+    footer: '(click to begin · C: credits)' };
 }
 function familyDoodles() {   // 一家子的涂鸦：到家/还在 = 黄，收养的 = 麻黄，没了 = 虚线
   return ducklings.filter(d => d.state !== 'stray').map(d => ({ kind: ['eaten', 'carried'].includes(d.state) ? 'lost' : d.roster?.adopted ? 'adopt' : 'home' }));
@@ -912,8 +919,37 @@ function familyDoodles() {   // 一家子的涂鸦：到家/还在 = 黄，收�
 function pausePage() {
   const onB = ducklings.filter(d => d.state === 'onBack').length, inW = ducklings.filter(d => ['floating', 'queued', 'falling', 'hopping'].includes(d.state)).length;
   return { title: `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
-    lines: [`${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home. ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`],
+    lines: [`${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home. ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`,
+      `Mouse: lean to keep them balanced.   Shift: quack.${C.day >= 1 ? '   Hold Shift: play hurt.' : ''}`,
+      `Sound ${pct(P.volume)} (← →)    Music ${pct(P.musicVolume)} (↑ ↓)    M: ${P.muted ? 'sound back on' : 'mute'}    C: credits`],
     footer: '(click or press Space to carry on)', scale: 0.85, compact: true };
+}
+const pct = v => `${Math.round(v * 100)}%`;
+// 制作人员：钢琴采样是 CC BY，必须在游戏里署名；其余 CC0 / 公有领域 / 开源许可也一并列出
+function creditsPage() {
+  return { title: 'Credits', scale: 0.92, gap: 22, lines: [
+    'Duck Shift. Made for GitHub Game Off 2026.',
+    "Music: Claude Debussy, Children's Corner (1908). Piano performances by Michael Bednarek (CC0, via Wikimedia Commons).",
+    'Piano samples: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0).',
+    'Sound effects: field recordings from Freesound by calodas, TheKingOfGeeks360, swordofkings128, Robo9418, N-RAZM, danielpodlovics, Krokulator, KoimeMatsuchiya, Q.K., hotpin7, el_boss, steaq, TRP, inspire153, _stubb, DJT4NN3R, Nox_Sound, vibe_crc, _lynks and bsumusictech (CC0). Thank you!',
+    'Fonts: Caveat, Patrick Hand and Fredoka (SIL Open Font License). Built with three.js (MIT).'],
+    footer: '(click to go back)' };
+}
+let creditsOpen = false;
+const menuPage = () => !S.started ? titlePage() : S.paused && !S.over ? pausePage() : null;   // 只有标题页和暂停页能翻到制作人员
+function toggleCredits() {
+  if (creditsOpen) { creditsOpen = false; book.show(menuPage() || titlePage()); }
+  else if (menuPage()) { creditsOpen = true; book.show(creditsPage()); }
+}
+function toggleMute() { P.muted = !P.muted; saveParams(); setVolume(); }
+// 暂停页上调音量：← → 音效，↑ ↓ 音乐
+function pauseSetting(code) {
+  const step = { ArrowLeft: ['volume', -0.1], ArrowRight: ['volume', 0.1], ArrowDown: ['musicVolume', -0.1], ArrowUp: ['musicVolume', 0.1] }[code];
+  if (step) { P[step[0]] = Math.round(THREE.MathUtils.clamp(P[step[0]] + step[1], 0, 1) * 10) / 10; setVolume(); }
+  else if (code === 'KeyM') toggleMute();
+  else return false;
+  saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); book.refresh(pausePage());
+  return true;
 }
 
 // ---------- 装受伤（拟伤表演）：按住 Shift，妈妈拖着一只「断」翅在水面扑腾大叫，把所有天敌的注意力引到自己身上 ----------

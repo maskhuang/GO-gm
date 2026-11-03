@@ -16,7 +16,7 @@ function wrap(g, text, maxW) {
   const out = [];
   for (const para of String(text).split('\n')) {
     let line = '';
-    const tokens = para.match(/[A-Za-z0-9'’.,!?%:-]+|\s+|./gu) || [];
+    const tokens = para.match(/[A-Za-z0-9'’.,!?%:()_-]+|\s+|./gu) || [];   // 括号、下划线跟着单词走，不单独落在行尾
     for (const tk of tokens) {
       if (g.measureText(line + tk).width > maxW && line) { out.push(line.trimEnd()); line = tk.trimStart(); }
       else line += tk;
@@ -118,7 +118,7 @@ function drawPage(g, spec) {
       spec.ducks.forEach((d, i) => duckDoodle(g, L + 60 + i * 170 * s, y + 60, s, d.kind));
       y += 160;
     }
-    for (const l of spec.lines || []) y = textBlock(g, l, L, y, CW, 50, 1.4) + 4;
+    for (const l of spec.lines || []) y = textBlock(g, l, L, y, CW, 50, 1.4) + (spec.gap ?? 4);
     y += 20;
     if (spec.notes?.length) {
       const n = spec.notes.length, gap = 60, w = (CW - gap * (n - 1)) / n;
@@ -158,6 +158,7 @@ export function createNotebook(scene, camera) {
       st.spec = spec; paint();
       st.showing = true; st.t = 0; st.out = 0; st.scale = spec.scale || 1; st.rot = (Math.random() - 0.5) * 0.06; mesh.visible = true;
     },
+    refresh(spec) { if (st.showing) { st.spec = spec; paint(); } },   // 同一页里改了数字：原地重画，不重新滑进来
     hide() { if (st.showing) { st.showing = false; st.out = 0.001; } },
     update(dt) {
       if (!mesh.visible) return;
