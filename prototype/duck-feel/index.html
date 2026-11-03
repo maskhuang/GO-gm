@@ -75,7 +75,7 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=11';
+import * as ART from './art.js?v=13';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
 import { createNotebook, createGlyph } from './notebook.js?v=8';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
@@ -203,7 +203,7 @@ sun.position.set(4, 10, 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02; sun.shadow.intensity = 0.45;
-Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9 });
+Object.assign(sun.shadow.camera, { left: -11, right: 11, top: 11, bottom: -11 });   // 岸上的大树也要投影
 scene.add(sun);
 
 const toon = (color) => new THREE.MeshToonMaterial({ color });

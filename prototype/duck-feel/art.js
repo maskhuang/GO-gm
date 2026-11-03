@@ -326,15 +326,15 @@ const BALL = new THREE.SphereGeometry(1, 18, 12);
 function buildReeds() {
   const parts = [], n = 5 + Math.floor(Math.random() * 3), col = pick(GREENS);
   for (let i = 0; i < n; i++) {
-    const h = rand(0.55, 1.05), a = i / n * TAU + rand(-0.3, 0.3);
-    const g = new THREE.ConeGeometry(0.075, h, 8); g.translate(0, h / 2, 0);
-    parts.push(part(g, col, [Math.cos(a) * 0.06, -0.08, Math.sin(a) * 0.06], [Math.sin(a) * 0.32, a, -Math.cos(a) * 0.32], [1, 1, 0.38]));
+    const h = rand(1.0, 1.8), a = i / n * TAU + rand(-0.3, 0.3);
+    const g = new THREE.ConeGeometry(0.11, h, 8); g.translate(0, h / 2, 0);
+    parts.push(part(g, col, [Math.cos(a) * 0.1, -0.08, Math.sin(a) * 0.1], [Math.sin(a) * 0.28, a, -Math.cos(a) * 0.28], [1, 1, 0.38]));
   }
   for (let i = 0; i < 1 + (Math.random() < 0.5); i++) {
-    const h = rand(0.85, 1.15), x = rand(-0.06, 0.06);
-    const st = new THREE.CylinderGeometry(0.014, 0.014, h, 6); st.translate(0, h / 2, 0);
+    const h = rand(1.5, 2.0), x = rand(-0.1, 0.1);
+    const st = new THREE.CylinderGeometry(0.02, 0.02, h, 6); st.translate(0, h / 2, 0);
     parts.push(part(st, 0x6f9455, [x, -0.08, x]));
-    parts.push(part(new THREE.CapsuleGeometry(0.05, 0.14, 4, 10), 0x9a6b48, [x, h - 0.08, x]));
+    parts.push(part(new THREE.CapsuleGeometry(0.07, 0.22, 4, 10), 0x9a6b48, [x, h - 0.1, x]));
   }
   return decorMesh(parts);
 }
@@ -363,24 +363,24 @@ function buildLily() {
 }
 // 花坛：一个绿色小土包上顶着几颗彩色的圆球（Goose 的花都是这样一团一团的）
 function buildFlowers() {
-  const parts = [], col = pick(FLOWER), r = rand(0.18, 0.28);
+  const parts = [], col = pick(FLOWER), r = rand(0.3, 0.45);
   parts.push(part(BALL, pick(GREENS), [0, 0, 0], [0, 0, 0], [r, r * 0.55, r * 0.9]));
   for (let i = 0; i < 6; i++) {
     const a = i / 6 * TAU + rand(-0.3, 0.3), d = rand(0.3, 0.75) * r;
-    parts.push(part(BALL, col, [Math.cos(a) * d, r * 0.45 + rand(0, 0.04), Math.sin(a) * d * 0.9], [0, 0, 0], [0.045, 0.04, 0.045]));
+    parts.push(part(BALL, col, [Math.cos(a) * d, r * 0.45 + rand(0, 0.04), Math.sin(a) * d * 0.9], [0, 0, 0], [0.06, 0.055, 0.06]));
   }
   return decorMesh(parts, false);
 }
 // 树：直直的树干 + 一两团光滑的大圆冠；三成是细高的杨树
 function buildTree() {
-  const parts = [], h = rand(0.6, 0.9), poplar = Math.random() < 0.3;
-  const trunk = new THREE.CylinderGeometry(0.08, 0.11, h, 10); trunk.translate(0, h / 2, 0);
+  const parts = [], h = rand(1.4, 2.0), poplar = Math.random() < 0.3;
+  const trunk = new THREE.CylinderGeometry(0.18, 0.26, h, 10); trunk.translate(0, h / 2, 0);
   parts.push(part(trunk, 0x8f6a4c));
   if (poplar) {
-    const r = rand(0.42, 0.55);
+    const r = rand(0.9, 1.15);
     parts.push(part(BALL, pick(GREENS), [0, h + r * 1.5, 0], [0, 0, 0], [r, r * 2.1, r]));
   } else {
-    const r = rand(0.7, 0.95);
+    const r = rand(1.6, 2.1);
     parts.push(part(BALL, pick(GREENS), [0, h + r * 0.75, 0], [0, 0, 0], [r, r * 0.85, r]));
     if (Math.random() < 0.6) { const r2 = r * rand(0.5, 0.65), a = rand(0, TAU); parts.push(part(BALL, pick(GREENS), [Math.cos(a) * r * 0.75, h + r * 0.45, Math.sin(a) * r * 0.75], [0, 0, 0], [r2, r2 * 0.85, r2])); }
   }
@@ -388,15 +388,15 @@ function buildTree() {
 }
 // 树篱：圆角长方块，顺着河岸摆（Goose 里最有辨识度的道具之一）
 function buildHedge() {
-  const L = rand(1.0, 2.0), H = rand(0.4, 0.55), D = rand(0.45, 0.6);
-  return decorMesh([part(new RoundedBoxGeometry(D, H, L, 4, 0.16), pick([0x6f9a55, 0x7aa35d]), [0, H / 2, 0])]);
+  const L = rand(2.2, 3.6), H = rand(0.9, 1.15), D = rand(0.8, 1.0);
+  return decorMesh([part(new RoundedBoxGeometry(D, H, L, 4, 0.3), pick([0x6f9a55, 0x7aa35d]), [0, H / 2, 0])]);
 }
 function buildBush() {
   const parts = [], n = 1 + Math.floor(Math.random() * 2), berry = Math.random() < 0.35;
   for (let i = 0; i < n; i++) {
-    const r = rand(0.28, 0.42), x = i * r * 1.1, z = rand(-0.1, 0.1);
+    const r = rand(0.55, 0.8), x = i * r * 1.1, z = rand(-0.15, 0.15);
     parts.push(part(BALL, pick(GREENS), [x, r * 0.75, z], [0, 0, 0], [r, r * 0.85, r]));
-    if (berry) for (let k = 0; k < 3; k++) { const a = rand(0, TAU); parts.push(part(BALL, 0xd9534f, [x + Math.cos(a) * r * 0.7, r * rand(1.0, 1.4), z + Math.sin(a) * r * 0.7], [0, 0, 0], [0.045, 0.045, 0.045])); }
+    if (berry) for (let k = 0; k < 3; k++) { const a = rand(0, TAU); parts.push(part(BALL, 0xd9534f, [x + Math.cos(a) * r * 0.7, r * rand(1.0, 1.4), z + Math.sin(a) * r * 0.7], [0, 0, 0], [0.07, 0.07, 0.07])); }
   }
   return decorMesh(parts);
 }
@@ -407,10 +407,11 @@ const DECOR = [
   { make: buildRock, n: 6, off: [-0.55, 0.1], y: -0.06 },
   { make: buildLily, n: 7, off: [-1.7, -0.6], float: true },
   // 镜头视角窄，草坪只露出岸边一条：大件要贴着台阶摆才进得了画面
-  { make: buildFlowers, n: 9, off: [0.85, 1.6] },
-  { make: buildHedge, n: 7, off: [0.95, 1.15], align: true },
-  { make: buildTree, n: 9, off: [1.2, 2.4] },
-  { make: buildBush, n: 8, off: [0.85, 1.6] },
+  // 比例按真实世界：秋沙鸭约 60cm 长，芦苇比她高一倍，树篱齐人腰，树要大得多——Goose 的鹅在世界里显得小，傻气就是这么来的
+  { make: buildFlowers, n: 8, off: [0.95, 1.6] },
+  { make: buildHedge, n: 5, off: [1.25, 1.45], align: true },
+  { make: buildTree, n: 6, off: [1.9, 2.7] },
+  { make: buildBush, n: 7, off: [1.2, 2.0] },
 ];
 const SPAN = 84, NEAR = 14;   // 装饰在 z ∈ [NEAR - SPAN, NEAR] 内循环
 
