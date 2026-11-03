@@ -26,6 +26,7 @@
   .hidden { display: none !important; }
   #paper { position: fixed; inset: 0; pointer-events: none; mix-blend-mode: multiply; opacity: 0.6; display: none; z-index: 1; }
   #hud, #help { z-index: 2; } #banner { z-index: 3; }
+  body:not(.debugui) #hud, body:not(.debugui) #help { display: none; }   /* 具身化 UI：游戏中不显示文字面板 */
   body.style-B #paper { display: block; }
   body.style-B canvas { filter: saturate(0.85) contrast(1.03); }
   body.style-B #hud, body.style-B #help { font-family: "Songti SC", "STSong", Georgia, serif; background: rgba(246,239,223,.9);
@@ -57,31 +58,37 @@
   <div id="prog"><div id="progFill"></div><span id="progDuck">🦆</span><span id="progHome">🏡</span></div>
   嘎！<div id="cd"><div id="cdFill"></div></div>
 </div>
-<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖　游到迷路的宝宝旁边就能收养它<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关</div>
+<div id="help">水下黑影只咬水里的宝宝：趁冒泡前用嘎！捞上来，或拐开甩掉它　鹰俯冲（红圈）时嘎！= 背上的缩起来、水里的潜下去　过落差前把宝宝都弄上背　宝宝泡水会冻得发蓝变慢，上背才回暖　游到迷路的宝宝旁边就能收养它<br>鼠标 = 重心倾斜　Shift = 嘎！召集：背上的回中间，身后排队的从尾巴爬上来　R = 重来　空格 = 暂停　H = 调参面板　1/2/3/4 = 原版/A 扁平/B 绘本/C 低模　F = 画面聚焦开关　V = 画面风格</div>
 <div id="paper"></div>
 <div id="vignette"></div>
 <div id="tiltblur"></div>
 <div id="banner"><div class="card">
   <h1>🦆 Duck Shift</h1>
-  <div id="bannerText">你是鸭妈妈。移动鼠标转移重心，<br>别让背上的宝宝掉进河里！<br>宝宝落水会排到你身后游<br>Shift：嘎！背上的回中间，身后的从尾巴爬上来<br><br><b>点击开始</b></div>
+  <div id="bannerText">你是鸭妈妈，要把宝宝们平安驮回家。<br>
+  <b>鼠标</b> 移动重心　<b>Shift</b> 嘎！<br><br>
+  <span style="font-size:15px;line-height:1.7">嘎！会把背上的宝宝叫回中间，<br>让身后游着的宝宝从尾巴爬上来，<br>也能让大家躲开扑下来的鹰。<br>
+  听宝宝的叫声、看它们的样子：<br>慌张乱扑 = 快掉了　发蓝发抖 = 冻坏了<br>冠羽竖起来 = 又能嘎了　天色变暖 = 快到家了</span><br><br><b>点击开始</b></div>
 </div></div>
 
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js';
+import * as ART from './art.js?v=3';
+import { createStylize, POST_MODES } from './stylize.js?v=3';
+const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
 // ---------- 可调参数 ----------
 const DEFAULTS = {
   maxTilt: 30,           // 鼠标推到边缘时的目标倾角（度）
   tiltStiffness: 45,     // 倾斜弹簧：越大越跟手
   tiltDamping: 10,       // 倾斜阻尼：越大越不晃
-  weightInfluence: 0.6,  // 宝宝重量把鸭妈妈压歪的程度（shift your weight）
+  weightInfluence: 0.9,  // 宝宝重量把鸭妈妈压歪的程度（shift your weight）
   gravity: 3.2,          // 背上的「手感重力」（不是真实 9.8）
-  staticFriction: 0.14,  // 静摩擦：倾角低于此宝宝站得住
-  kineticFriction: 0.08, // 动摩擦：滑起来后的减速
-  domeCurvature: -0.12,  // 背部形状：正 = 隆起往外滑，负 = 凹陷往中间聚
-  wanderStrength: 0.8,   // 宝宝自己乱跑的力度
+  staticFriction: 0.09,  // 静摩擦：倾角低于此宝宝站得住
+  kineticFriction: 0.06, // 动摩擦：滑起来后的减速
+  domeCurvature: 0.08,   // 背部形状：正 = 隆起往外滑，负 = 凹陷往中间聚（微隆：不动就会慢慢滑出去）
+  wanderStrength: 1.0,   // 宝宝自己乱跑的力度
+  swell: 0.9,            // 水面涌动：一直轻轻晃妈妈（越往后越大），逼着玩家持续修正
   quackPull: 2.6,        // 嘎！把宝宝拉回中心的力度
   quackStabilize: 0.6,   // 嘎！扑翅时抵消的晃动比例
   quackCooldown: 2,      // 嘎！冷却（秒）
@@ -97,7 +104,11 @@ const DEFAULTS = {
   teeterSlowMo: true,    // 有宝宝扒边时短暂慢动作
   babySwim: 1.4,         // 落水宝宝游去排队的速度
   climbReach: 1.3,       // 嘎！时离尾巴多近的宝宝能爬上来
-  climbPerQuack: 1,      // 每次嘎！最多爬上来几只
+  climbPerQuack: 1,      // 每次嘎！立刻爬上来几只（其余的在上船窗口里陆续爬）
+  boardTime: 1.2,        // 嘎！后的上船窗口（秒）：游到尾巴边的宝宝一只接一只爬上来
+  boardGap: 0.22,        // 上船窗口里每只之间隔多久
+  callTime: 1.6,         // 嘎！后水里的宝宝冲刺游向尾巴多久
+  callSpeed: 2.2,        // 冲刺时的游速倍数
   lostTime: 12,          // 失温：从暖和到冻透要在水里泡多久（冻透就跟丢）
   warmRate: 0.3,         // 背上回暖速度（每秒回多少体温，背中间更快）
   director: true,        // 节奏编排：热身 → 逐个登场（首次带提示）→ 大威胁不叠加、有喘息 → 慢慢加快。关掉 = 各事件独立计时
@@ -131,16 +142,22 @@ const DEFAULTS = {
   cameraMode: 'top',     // top = 3D 俯视；chase = 身后追尾
   camHeight: 7,          // 俯视：镜头距离
   camAngle: 22,          // 俯视：偏离垂直的角度（0 = 正上方）
-  showLevel: true,       // 俯视：水平仪
+  showLevel: false,      // 俯视：水平仪（具身化 UI：默认关，看鸭妈妈身体倾斜就够）
   chibi: 0.4,            // 宝宝夸张度：0 = 朴素，1 = 大头大眼长呆毛、动作很多
+  post: 'cel',           // 后期风格化：none 原样 / cel 描边卡通 / paint 颜料画 / riso 孔版印刷（V 切换）
+  debugUI: false,        // 调试用：显示 HUD、文字标签、目标红圈、提示条（正式玩法是具身化 UI，不出现文字）
   focus: false,          // 画面聚焦：环境压暗 + 边缘虚化（F 切换；默认关，保持 Goose 式的明亮）
   cameraFollowRoll: 0.3, // 追尾：镜头跟随倾斜比例（0 = 不跟）
-  showLabels: true,
+  showLabels: false,
   invertY: false,
+  uiVersion: 4,
 };
 let P = { ...DEFAULTS };
 try {
   const saved = JSON.parse(localStorage.getItem('duckShiftParams_v2') || '{}');
+  if ((saved.uiVersion || 0) < 3) { for (const k of ['showLevel', 'showLabels', 'post', 'focus']) delete saved[k]; }   // 换成具身化 UI：旧存档里的 UI 开关作废
+  if ((saved.uiVersion || 0) < 4) { for (const k of ['weightInfluence', 'staticFriction', 'kineticFriction', 'domeCurvature', 'wanderStrength']) delete saved[k]; }   // 背上太稳：这几项平衡参数重置
+  saved.uiVersion = 4;
   Object.assign(P, saved);
 } catch (e) {}
 const saveParams = () => { try { localStorage.setItem('duckShiftParams_v2', JSON.stringify(P)); } catch (e) {} };
@@ -217,7 +234,8 @@ const backPatch = new THREE.Mesh(patchGeo, new THREE.MeshToonMaterial({ color: 0
 backPatch.userData.skip = true;
 duck.add(backPatch);
 const backGroup = new THREE.Group(); duck.add(backGroup); // 宝宝挂在这里，随鸭妈妈一起倾斜
-const COLD_TINT = new THREE.Color(0xe2edf5);   // 冻僵的宝宝：褪成冰白（黄混蓝会发灰发绿，像脏了），靠「❄ 好冷」标签说清楚
+const SUNSET = { bg: new THREE.Color(0xf7d6bc), sun: new THREE.Color(0xffb27a), sky: new THREE.Color(0xffe0c4) };
+const COLD_TINT = new THREE.Color(0xb8d8f2);   // 冻僵的宝宝：浅冰蓝（够浅才不会和黄色混成灰绿）
 const PATCH_SAFE = new THREE.Color(0xf4f5f6), PATCH_DANGER = new THREE.Color(0xe8483b);
 
 // 水平仪（俯视时看清倾斜）：实心点 = 实际倾斜，空心圈 = 鼠标目标
@@ -288,7 +306,7 @@ function spawnOrphan(msg = '有只迷路的宝宝！游过去接它 🐥', ms) {
   d.strayVx = rand(-0.3, 0.3);
   d.mesh.position.copy(d.wp);
   ducklings.push(d);
-  alertless(msg, ms);
+  hint(msg, ms);
 }
 function updateOrphans(dt, flow) {
   if (!P.director) {
@@ -336,6 +354,14 @@ function peep(freq, vol = 0.12) {
   o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.35, t + 0.07);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
   o.connect(g).connect(master); o.start(t); o.stop(t + 0.1);
+}
+function coldPeep(freq, vol = 0.08) {   // 冷得打颤的叫声：低一点、带颤音
+  if (!actx) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(), lfo = actx.createOscillator(), lg = actx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 0.85, t + 0.18);
+  lfo.frequency.value = 22; lg.gain.value = freq * 0.06; lfo.connect(lg).connect(o.frequency);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g).connect(master); o.start(t); lfo.start(t); o.stop(t + 0.22); lfo.stop(t + 0.22);
 }
 function splashSound() {
   if (!actx) return;
@@ -416,7 +442,8 @@ function splash(pos, n = 16, power = 1) {
   }
 }
 
-const fx = ART.createFX(scene);   // 水圈 / 尾迹 / 嘎！气泡 / 星星
+const fx = ART.createFX(scene);
+const stylize = createStylize(renderer, scene, camera);   // 水圈 / 尾迹 / 嘎！气泡 / 星星
 
 // ---------- 危险：漂流物 / 尾浪 / 老鹰 / 蝴蝶 ----------
 const logs = [];
@@ -613,7 +640,7 @@ foam.rotation.x = -Math.PI / 2; foam.userData.foam = true; scene.add(foam);
     `radial-gradient(ellipse at center, transparent 55%, rgba(110,80,40,0.35) 100%), url(${c.toDataURL()})`;
   function rand0(a, b) { return a + Math.random() * (b - a); }
 }
-function applyFocus() { document.body.classList.toggle('focus', !!P.focus); }
+function applyFocus() { document.body.classList.toggle('focus', !!P.focus); document.body.classList.toggle('debugui', !!P.debugUI); }
 function applyStyle(key) {
   if (!STYLES[key]) key = 'A';
   P.artStyle = key; curStyle = STYLES[key];
@@ -663,6 +690,7 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyR') { reset(); S.started = true; }
   else if (e.code === 'Space') { S.paused = !S.paused; e.preventDefault(); }
   else if (e.code === 'KeyH') gui._hidden ? gui.show() : gui.hide();
+  else if (e.code === 'KeyV') { const ks = Object.keys(POST_MODES); P.post = ks[(ks.indexOf(P.post) + 1) % ks.length]; saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); alertless('画面风格：' + POST_NAMES[P.post]); }
   else if (e.code === 'KeyF') { P.focus = !P.focus; applyFocus(); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
   else if (/^Digit[1-4]$/.test(e.code)) { applyStyle(['orig', 'A', 'B', 'C'][+e.code.slice(5) - 1]); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
 });
@@ -689,6 +717,7 @@ function quack() {
     if (picked >= P.climbPerQuack) break;
     if (Math.hypot(d.wp.x - tailX, d.wp.z - tailZ) <= P.climbReach) { startHop(d); picked++; }
   }
+  S.board = P.boardTime; S.boardNext = P.boardGap; S.call = P.callTime;   // 「快过来！」：水里的都冲向尾巴，窗口里一只接一只爬上来
   S.rollV *= (1 - P.quackStabilize); S.pitchV *= (1 - P.quackStabilize);
   for (const d of ducklings) {
     if (d.state !== 'onBack') continue;
@@ -812,6 +841,7 @@ function startHop(d) {
 }
 
 function step(dt) {
+  S.board = Math.max(0, (S.board || 0) - dt); S.boardNext = (S.boardNext || 0) - dt; S.call = Math.max(0, (S.call || 0) - dt);
   // 鸭妈妈倾斜：弹簧追鼠标 + 宝宝重量力矩 + 外力
   const targetRoll = S.arrived ? 0 : THREE.MathUtils.degToRad(P.maxTilt) * mouse.x;   // 到家后不再听鼠标
   const targetPitch = S.arrived ? 0 : THREE.MathUtils.degToRad(P.maxTilt) * mouse.y * (P.invertY ? -1 : 1);
@@ -819,8 +849,12 @@ function step(dt) {
   for (const d of ducklings) if (d.state === 'onBack') { wRoll += d.mass * d.x / BACK_A; wPitch += d.mass * d.z / BACK_B; }
   let distRoll = 0;
   if (wake.active) distRoll = Math.sin(wake.t * 7.5) * 3.2 * Math.max(0, 1 - wake.t / 3.5) * wake.side;
+  // 水面涌动：两个不同频率的起伏叠加，越往后越大；到家后平静
+  const swT = S.time || 0, swK = S.arrived ? 0 : P.swell * (0.6 + 0.6 * Math.min(1, S.dist / P.journeyLen));
+  distRoll += swK * (Math.sin(swT * 1.3) + 0.6 * Math.sin(swT * 2.9 + 1.7));
+  const distPitch = swK * 0.7 * (Math.sin(swT * 1.1 + 0.5) + 0.5 * Math.sin(swT * 3.3));
   S.rollV += (P.tiltStiffness * (targetRoll - S.roll) - P.tiltDamping * S.rollV + P.weightInfluence * wRoll + distRoll) * dt;
-  S.pitchV += (P.tiltStiffness * (targetPitch - S.pitch) - P.tiltDamping * S.pitchV + P.weightInfluence * wPitch * 0.8) * dt;
+  S.pitchV += (P.tiltStiffness * (targetPitch - S.pitch) - P.tiltDamping * S.pitchV + P.weightInfluence * wPitch * 0.8 + distPitch) * dt;
   S.roll += S.rollV * dt; S.pitch += S.pitchV * dt;
   const lim = THREE.MathUtils.degToRad(50);
   S.roll = THREE.MathUtils.clamp(S.roll, -lim, lim); S.pitch = THREE.MathUtils.clamp(S.pitch, -lim, lim);
@@ -862,9 +896,12 @@ function step(dt) {
       const slot = train().indexOf(d);
       const delay = Math.min(S.xHistory.length - 1, (slot + 1) * 14);
       const tx = S.xHistory.length ? S.xHistory[S.xHistory.length - 1 - delay] : S.x;
-      const tz = S.z + BODY.rz + 0.3 + slot * 0.42 + (1 - d.warmth) * 1.3;   // 越冷越跟不上，往后落，渐渐超出尾巴够得着的范围
-      const dx = tx - d.wp.x, dz = tz - d.wp.z, l = Math.hypot(dx, dz);
-      const stepLen = Math.min(l, P.babySwim * (0.4 + 0.6 * d.warmth) * dt * (l > 1 ? 1 : 0.6 + l * 0.4));   // 越冷游得越慢，渐渐掉出尾巴够得着的范围
+      const calling = S.call > 0;   // 妈妈刚嘎过：队伍收紧、拼命往尾巴游
+      const tz = S.z + BODY.rz + 0.3 + slot * (calling ? 0.22 : 0.42) + (1 - d.warmth) * (calling ? 0.3 : 0.9);   // 越冷越跟不上，往后落
+      const dx = (calling ? S.x : tx) - d.wp.x, dz = tz - d.wp.z, l = Math.hypot(dx, dz);
+      const stepLen = Math.min(l, P.babySwim * (calling ? P.callSpeed : 1) * (0.4 + 0.6 * d.warmth) * dt * (l > 1 ? 1 : 0.6 + l * 0.4));   // 越冷游得越慢
+      // 上船窗口：游到尾巴边就爬上来（一只接一只）
+      if (S.board > 0 && S.boardNext <= 0 && Math.hypot(d.wp.x - S.x, d.wp.z - (S.z + BODY.rz)) <= P.climbReach) { startHop(d); S.boardNext = P.boardGap; continue; }
       if (l > 0.001) { d.wp.x += dx / l * stepLen; d.wp.z += dz / l * stepLen; }
       d.mesh.rotation.x *= 0.9; d.mesh.rotation.z *= 0.9;
       d.mesh.rotation.y += (0 - d.mesh.rotation.y) * Math.min(1, 4 * dt);   // 和妈妈一样朝上游
@@ -985,12 +1022,12 @@ function resetDirector() { Object.assign(DIR, { t: 0, unlocked: [], nextBig: 0, 
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
 const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on;
 function triggerEvent(ev, first) {
-  const hint = first ? HINT[ev] : null, ms = 4200;
-  if (ev === 'kayak') { spawnKayak(); if (hint) alertless(hint, ms); }
-  else if (ev === 'orphan') hint ? spawnOrphan(hint, ms) : spawnOrphan();
-  else if (ev === 'lurker') { if (!P.lurkerOn) return; spawnLurker(); if (hint) alertless(hint, ms); }
-  else if (ev === 'rapids') hint ? startRapids(hint, ms) : startRapids();
-  else if (ev === 'hawk') { spawnHawk(); if (hint) alertless(hint, ms); }
+  const hintMsg = first ? HINT[ev] : null, ms = 4200;
+  if (ev === 'kayak') { spawnKayak(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'orphan') hintMsg ? spawnOrphan(hintMsg, ms) : spawnOrphan();
+  else if (ev === 'lurker') { if (!P.lurkerOn) return; spawnLurker(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'rapids') hintMsg ? startRapids(hintMsg, ms) : startRapids();
+  else if (ev === 'hawk') { spawnHawk(); if (hintMsg) hint(hintMsg, ms); }
 }
 function updateDirector(dt) {
   if (!P.director || P.journeyLen - S.dist < 70) return;   // 最后 70 米不再出新威胁
@@ -1046,7 +1083,7 @@ function arrive() {
   const fam = ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state));
   fam.forEach((d, i) => { d.homeDelay = 0.8 + i * 0.35; d.homeIdx = i; d.homeN = fam.length; });
   S.homeCount = fam.length;
-  alertless('到家啦！🏡', 2400);
+  hint('到家啦！🏡', 2400);
 }
 function homeSpot(i, n, out) {
   const a = Math.PI + (i - (n - 1) / 2) * Math.min(0.55, 2.6 / Math.max(1, n));   // 在窝前排成一道弧，面朝镜头
@@ -1099,7 +1136,7 @@ function startRapids(msg = '前方急流！还有落差 🌊', ms) {
     m.position.set(rand(-1, 1) * (RIVER_HALF - 1.2), -0.05, m.userData.u + S.dist);
     scene.add(m); RP.rocks.push({ m, hit: false, r: 0.3 * m.scale.x });
   }
-  alertless(msg, ms);
+  hint(msg, ms);
 }
 function endRapids() {
   for (const r of RP.rocks) r.m.removeFromParent();
@@ -1203,7 +1240,7 @@ function updateHawk(dt) {
     const tp = hawkTargetPos(d, new THREE.Vector3());
     H.pos.lerpVectors(H.from, tp, k * k);
     height = 3.2 * (1 - k * k) + 0.4; shadowS = 1.2 - 0.6 * k; shadowO = 0.35 + 0.25 * k; flap = -0.5;
-    hawkRing.visible = true; hawkRing.position.set(tp.x, d.state === 'onBack' ? tp.y + 0.02 : 0.04, tp.z);
+    hawkRing.visible = !!P.debugUI; hawkRing.position.set(tp.x, d.state === 'onBack' ? tp.y + 0.02 : 0.04, tp.z);
     hawkRing.scale.setScalar(1 + 0.25 * Math.sin(performance.now() / 60));
     if (k >= 1) {
       const exposed = !(S.cover > 0) && ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state);
@@ -1281,7 +1318,7 @@ function updateLurker(dt) {
     const inWater = d.state === 'floating' || d.state === 'queued';
     if (inWater) {
       moveTo(d.wp.x, d.wp.z, 0.6);   // 慢慢跟：妈妈拐开、队伍甩起来就能躲掉
-      targetRing.visible = true; targetRing.position.set(d.wp.x, 0.035, d.wp.z);
+      targetRing.visible = !!P.debugUI; targetRing.position.set(d.wp.x, 0.035, d.wp.z);
       targetRing.scale.setScalar(1 + 0.25 * Math.sin(performance.now() / 60));
     }
     if (L.bubble <= 0) { ripple(L.x, L.z); bloop(260 + Math.random() * 120, 0.12); L.bubble = 0.09; }
@@ -1321,7 +1358,9 @@ function syncVisuals(realDt, simDt) {
   const q = S.flap > 0 ? Math.sin(Math.min(1, (0.5 - S.flap) / 0.12) * Math.PI / 2) * Math.min(1, S.flap / 0.15) : 0;
   // 回头看宝宝：有宝宝扒边/落水就扭头盯着它（鸟脖子能转 180°），平时也隔一阵回头瞄一眼——这样玩家才看得到她的脸
   let look = null;
-  for (const d of ducklings) {
+  const threatened = hawkState.phase === 'dive' ? hawkState.target : L.phase === 'windup' ? L.target : null;   // 鹰/水下黑影盯上的宝宝：妈妈先盯着它
+  if (threatened) look = threatened.state === 'onBack' ? threatened.mesh.position : duck.worldToLocal(tmpV.copy(threatened.wp));
+  if (!look) for (const d of ducklings) {
     if (d.state === 'onBack' && d.teeter > 0) { look = d.mesh.position; break; }
     if (!look && (d.state === 'falling' || d.state === 'floating')) look = duck.worldToLocal(tmpV.copy(d.wp));
   }
@@ -1336,13 +1375,18 @@ function syncVisuals(realDt, simDt) {
   // 游泳时一点一点地点头；嘎！时伸长脖子、冠羽炸毛；偶尔眨眼
   const hb = head.userData.base, bob = Math.sin(t * 4.4);
   head.position.set(0, hb.y + bob * 0.015 + q * 0.12, hb.z - Math.max(0, bob) * 0.025 - q * 0.16);
-  M.crest.scale.set(1 + q * 0.35, 1 + q * 0.6, 1 + q * 0.35);
+  // 冠羽 = 嘎！的冷却：冷却中趴下去，好了「噗」地竖起来（加一声轻响）
+  const cdK = P.quackCooldown > 0 ? S.quackCd / P.quackCooldown : 0;
+  if (S.wasCd && cdK <= 0) { S.crestPop = 0.35; bloop(520, 0.08); }
+  S.wasCd = cdK > 0; S.crestPop = Math.max(0, (S.crestPop || 0) - realDt);
+  const pop = Math.sin((S.crestPop / 0.35) * Math.PI) * 0.35;
+  M.crest.scale.set(1 + q * 0.35 + pop * 0.5, (1 + q * 0.6 + pop) * (1 - 0.45 * cdK), 1 + q * 0.35);
   const blink = (t % 3.7) < 0.12 || ((t + 1.3) % 7.9) < 0.12;
   for (const e of M.eyes) e.scale.y = blink ? 0.15 : 1;
   M.body.scale.y = BODY.ry * (1 + bob * 0.02);
   jaw.rotation.x = -0.5 * q;
   M.tail.rotation.y = Math.sin(t * 2.6) * 0.12 + S.rollV * 0.03;
-  M.crest.rotation.x = Math.sin(t * 3.1) * 0.06 - q * 0.2;
+  M.crest.rotation.x = Math.sin(t * 3.1) * 0.06 * (1 - cdK) - q * 0.2 + cdK * 0.7;   // 冷却中往后贴着脑袋
   for (const w of wings) w.rotation.z = w.userData.side * (S.flap > 0.25 ? Math.abs(Math.sin(S.flap * 25)) * 1.1
     : S.cover > 0 ? 0.6 + Math.sin(t * 30) * 0.04 : S.flap > 0 ? Math.abs(Math.sin(S.flap * 25)) * 1.1 : 0.05);   // 护崽时半张翅膀
 
@@ -1354,7 +1398,7 @@ function syncVisuals(realDt, simDt) {
       d.tintMat = bodyM.material.clone(); d.tintBase = bodyM.material.color.clone(); d.tintEm = bodyM.material.emissive.clone();
       bodyM.material = headM.material = d.tintMat;
     }
-    const cold = (1 - d.warmth) * 0.6;
+    const cold = Math.pow(1 - d.warmth, 0.8) * 0.85;
     d.tintMat.color.copy(d.tintBase).lerp(COLD_TINT, cold); d.tintMat.emissive.copy(d.tintEm).multiplyScalar(1 - cold);
     d.label.visible = P.showLabels && d.state === 'onBack';
     if (d.state === 'onBack') d.strayLbl.visible = false;
@@ -1378,7 +1422,9 @@ function syncVisuals(realDt, simDt) {
       // 越靠近边缘越慌：啾声更高更急、翅芽乱扑
       const r = Math.hypot(d.x / BACK_A, d.z / BACK_B);
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), moving: sp > 0.05 && !d.sleeping, sleeping: d.sleeping, panic: d.teeter > 0 || r > 0.85,
-        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0, cold: 1 - d.warmth });
+        peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0, cold: 1 - d.warmth,
+        lookUp: hawkState.phase === 'dive' && hawkState.target === d });
+      if (d.warmth < 0.5 && simDt > 0 && Math.random() < simDt * 0.5) { coldPeep(1900, 0.04); d.mouth = 1; }   // 背上还冷着：小声打颤
       d.peepCd -= simDt;
       if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
       else if (!d.sleeping && Math.random() < simDt * 0.12 * P.chibi) { peep(2300 + Math.random() * 600, 0.025); d.mouth = 1; }   // 闲着偶尔叽一声
@@ -1403,8 +1449,21 @@ function syncVisuals(realDt, simDt) {
       const showCold = d.help.visible && d.warmth < 0.6;   // 冷了：「救我！」换成「❄ 好冷」
       d.coldLbl.visible = showCold; if (showCold) d.help.visible = false;
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), swimming: d.state === 'floating' || d.state === 'queued' || d.state === 'stray',
-        panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried', peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi, cold: 1 - d.warmth });
+        panic: d.state === 'falling' || d.state === 'floating' || d.state === 'carried' || d.state === 'stray' || (L.phase === 'windup' && L.target === d),
+        peep: Math.max(0, d.mouth || 0), stretch: d.state === 'hopping' ? Math.sin(Math.min(1, d.hopT) * Math.PI) : 0, amt: P.chibi, cold: 1 - d.warmth,
+        lookUp: hawkState.phase === 'dive' && hawkState.target === d });
+      // 求救的叫声：落水的宝宝隔一会儿叫一声；越冷叫得越慢、越低、越虚、带颤音
+      if (d.state === 'floating' && !(S.cover > 0) && simDt > 0) {
+        d.callT = (d.callT ?? Math.random()) - simDt;
+        if (d.callT <= 0) {
+          const c = 1 - d.warmth;
+          d.callT = 0.7 + c * 0.9 + Math.random() * 0.3; d.mouth = 1;
+          c > 0.4 ? coldPeep(2300 - c * 700, 0.09 * (1 - c * 0.5)) : peep(2700 + Math.random() * 300, 0.1);
+        }
+      }
     }
+    if (!P.debugUI) { d.help.visible = d.coldLbl.visible = d.strayLbl.visible = d.zz.visible = false; }   // 具身化 UI：不显示文字标签
+    if (!P.showLabels) d.label.visible = false;
   }
 
   // 背部警示色：宝宝越靠边越红
@@ -1419,6 +1478,14 @@ function syncVisuals(realDt, simDt) {
   }
   if (riverC.visible) updateRiverC(t);
   waterA.uniforms.uTime.value = t; waterA.uniforms.uDist.value = S.dist;
+  // 天色 = 进度：正午 → 傍晚；越接近家光越暖、影子越长
+  if (curStyle.key === 'A') {
+    const f = THREE.MathUtils.smoothstep(Math.min(1, S.dist / P.journeyLen), 0.05, 1);
+    scene.background.set(curStyle.bg).lerp(SUNSET.bg, f); scene.fog.color.copy(scene.background);
+    sun.color.set(curStyle.sun[0]).lerp(SUNSET.sun, f); sun.intensity = curStyle.sun[1] * (1 - 0.15 * f);
+    hemi.color.set(curStyle.hemi[0]).lerp(SUNSET.sky, f);
+    sun.position.set(4 + f * 5, 10 - f * 5.5, 3 - f * 1.5);
+  }
   waterA.uniforms.uFocus.value.set(S.x, S.z);
   waterA.uniforms.uRapA.value = RP.uA; waterA.uniforms.uRapB.value = RP.uB; waterA.uniforms.uRapOn.value = RP.on ? 1 : 0; waterA.uniforms.uFocusAmt.value = P.focus ? 1 : 0;
   contact.position.set(S.x, 0.015, S.z + 0.05); contact.visible = curStyle.key === 'A';
@@ -1492,7 +1559,7 @@ function frame(now) {
   }
   if (!(S.started && !S.paused && !S.over)) rumbleGain(0);
   syncVisuals(realDt, simDt);
-  renderer.render(scene, camera);
+  stylize.render(POST_MODES[P.post] || 0, now / 1000);
 }
 
 // ---------- 调参面板 ----------
@@ -1516,12 +1583,19 @@ f2b.add(P, 'teeterMargin', 0, 0.6, 0.02).name('扒边余量').onChange(onCh);
 f2b.add(P, 'teeterGrip', 0, 1, 0.05).name('扒边抓力').onChange(onCh);
 f2b.add(P, 'teeterSlowMo').name('扒边慢动作').onChange(onCh);
 f2.add(P, 'wanderStrength', 0, 3, 0.1).name('乱跑力度').onChange(onCh);
+f2.add(P, 'swell', 0, 4, 0.1).name('水面涌动').onChange(onCh);
 f2.add(P, 'showLabels').name('显示性格标签').onChange(onCh);
 gui.add(P, 'chibi', 0, 1, 0.05).name('🐥 宝宝夸张度').onChange(onCh);
+gui.add(P, 'debugUI').name('🔧 调试 UI（HUD/文字/红圈）').onChange(() => { applyFocus(); onCh(); });
+gui.add(P, 'post', Object.fromEntries(Object.entries(POST_NAMES).map(([k, v]) => [v, k]))).name('🖌 画面风格（V）').onChange(onCh);
 const f6 = gui.addFolder('落水与爬回（嘎！接人）');
 f6.add(P, 'babySwim', 0.2, 4, 0.1).name('宝宝游去排队速度').onChange(onCh);
 f6.add(P, 'climbReach', 0.3, 4, 0.1).name('尾巴接人范围').onChange(onCh);
-f6.add(P, 'climbPerQuack', 1, 5, 1).name('每次嘎！接几只').onChange(onCh);
+f6.add(P, 'climbPerQuack', 1, 5, 1).name('嘎！立刻接几只').onChange(onCh);
+f6.add(P, 'boardTime', 0, 3, 0.1).name('上船窗口秒').onChange(onCh);
+f6.add(P, 'boardGap', 0.05, 1, 0.01).name('窗口里每只间隔秒').onChange(onCh);
+f6.add(P, 'callTime', 0, 4, 0.1).name('嘎！后冲刺秒').onChange(onCh);
+f6.add(P, 'callSpeed', 1, 5, 0.1).name('冲刺游速倍数').onChange(onCh);
 f6.add(P, 'lostTime', 3, 30, 0.5).name('水里多久冻透（跟丢）秒').onChange(onCh);
 f6.add(P, 'warmRate', 0.05, 1.5, 0.05).name('背上回暖速度').onChange(onCh);
 f6.add(P, 'hopImpact', 0, 5, 0.1).name('爬上冲击').onChange(onCh);
@@ -1588,6 +1662,7 @@ gui.add({ copy() {
 } }, 'copy').name('📋 复制当前参数');
 gui.add({ reset() { Object.assign(P, DEFAULTS); applyStyle(P.artStyle); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); } }, 'reset').name('↺ 恢复默认参数');
 gui.add({ restart() { reset(); S.started = true; } }, 'restart').name('🔄 重来（R）');
+function hint(msg, ms) { if (P.debugUI) alertless(msg, ms); }   // 游戏中的文字提示只在调试 UI 下出现
 let lastToast = null;
 function alertless(msg, ms = 1600) {
   lastToast?.remove();   // 新提示顶掉旧的，不叠在一起
@@ -1600,12 +1675,12 @@ function alertless(msg, ms = 1600) {
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(innerWidth, innerHeight); stylize.setSize(innerWidth, innerHeight);
 });
 
 spawnDucklings();
 applyStyle(P.artStyle);
-window.__duck = { S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
+window.__duck = { stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>

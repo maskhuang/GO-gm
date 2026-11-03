@@ -235,7 +235,14 @@ export function animateDuckling(inner, t, st) {
   // 挤压拉伸：走路一弹一弹，落地压扁
   let sy = 1 + ((st.moving ? Math.sin(t * 18 + ph) * 0.07 : Math.sin(t * 2.5 + ph) * 0.02) - (st.land || 0) * 0.35) * k;
   if (st.stretch) sy += st.stretch * 0.25 * k;
-  if (st.cold > 0.35) {   // 冷得发抖
+  if (st.lookUp) {   // 被鹰盯上：僵住、抬头看天、眼睛瞪圆
+    head.rotation.set(-0.7, 0, 0); for (const e of eyes) e.scale.set(1.3 * es, 1.3 * es, 1.3 * es);
+    for (const n of nubs) n.rotation.z = n.userData.side * 0.15;
+    sy *= 0.85;
+  }
+  if (st.cold > 0.35) {   // 冷得发抖、缩成一团、眼睛半眯
+    sy *= 1 - 0.12 * st.cold;
+    if (!st.panic && !st.lookUp) for (const e of eyes) e.scale.y = Math.min(e.scale.y, es * (1 - 0.5 * st.cold));
     const c = (st.cold - 0.35) / 0.65;
     inner.position.x = Math.sin(t * 70 + ph) * 0.012 * c;
     head.rotation.z += Math.sin(t * 55 + ph) * 0.08 * c;
@@ -591,12 +598,16 @@ export function buildHawk(toon) {
 function popTexture(kind) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 160;
   const g = c.getContext('2d');
-  if (kind === 'quack') {
-    g.fillStyle = '#fff'; g.strokeStyle = '#12324a'; g.lineWidth = 8;
-    g.beginPath(); g.roundRect(14, 14, 228, 104, 44); g.moveTo(70, 114); g.lineTo(52, 150); g.lineTo(110, 116); g.fill(); g.stroke();
-    g.fillStyle = '#fff'; g.fillRect(64, 104, 50, 16);
-    g.fillStyle = '#e0533a'; g.font = 'bold 76px system-ui, "PingFang SC", sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('嘎！', 128, 68);
+  if (kind === 'quack') {   // 声波弧线（不用文字）：左右各三道，白线描深边，和描边卡通一致
+    g.lineCap = 'round';
+    for (const [lw, col] of [[16, '#12324a'], [8, '#ffffff']]) {
+      g.lineWidth = lw; g.strokeStyle = col;
+      for (let i = 0; i < 3; i++) {
+        const r = 26 + i * 22;
+        g.beginPath(); g.arc(128, 84, r, -0.55, 0.55); g.stroke();
+        g.beginPath(); g.arc(128, 84, r, Math.PI - 0.55, Math.PI + 0.55); g.stroke();
+      }
+    }
   } else {
     g.translate(128, 80); g.fillStyle = '#ffd24f'; g.strokeStyle = '#fff'; g.lineWidth = 6;
     g.beginPath();
