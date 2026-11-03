@@ -170,6 +170,8 @@ const DEFAULTS = {
   cameraFollowRoll: 0.3, // 追尾：镜头跟随倾斜比例（0 = 不跟）
   showLabels: false,
   invertY: false,
+  volume: 0.7,           // 总音量
+  muted: false,          // M 静音
   uiVersion: 5,
 };
 let P = { ...DEFAULTS };
@@ -368,11 +370,11 @@ function updateOrphans(dt, flow) {
     if (Math.abs(d.wp.x) > RIVER_HALF - 0.8) { d.strayVx = -Math.sign(d.wp.x) * Math.abs(d.strayVx); d.wp.x = Math.sign(d.wp.x) * (RIVER_HALF - 0.8); }   // 只在水里
     d.warmth = Math.max(0.05, d.warmth - dt / freezeT() * 0.5);
     d.strayPeep -= dt;
-    if (d.strayPeep <= 0) { d.strayPeep = 0.9; peep(2900, 0.07); setTimeout(() => peep(3300, 0.06), 110); d.mouth = 1; }
+    if (d.strayPeep <= 0) { d.strayPeep = 0.9; peep(2900, 0.07, d.wp.x); setTimeout(() => peep(3300, 0.06, d.wp.x), 110); d.mouth = 1; }
     if (Math.random() < dt * 3) fx.ring(d.wp.x, d.wp.z, { r0: 0.05, r1: 0.25, life: 0.8, opacity: 0.45 });
     if (Math.hypot(d.wp.x - S.x, d.wp.z - S.z) < P.adoptReach) {   // 接到了：排进身后的队伍
       d.state = 'floating'; d.floatT = 0; d.fellAt = performance.now(); S.adopted++;
-      peep(1800, 0.2); setTimeout(() => peep(2400, 0.18), 120);
+      peep(1800, 0.2, d.wp.x); setTimeout(() => peep(2400, 0.18, d.wp.x), 120);
       fx.sparkle(d.wp.clone().setY(0.3), 6);
     } else if (d.wp.z > S.z + 4) d.state = 'gone';   // 错过了
   }
@@ -380,142 +382,221 @@ function updateOrphans(dt, flow) {
 }
 
 // ---------- 音效（WebAudio 合成，无需素材） ----------
-let actx = null, master = null;
+// 信号链：音效 → 声像（按横向位置左右分） → bus → 慢动作低通 → 干声 + 一点室外混响 → 总音量 → 压限 → 输出
+// 环境声（流水、鸟叫）走 amb，不进混响也不受慢动作影响
+let actx = null, bus = null, master = null, slowLP = null, amb = null, noiseBuf = null;
+const vary = (v, k = 0.06) => v * (1 + (Math.random() * 2 - 1) * k);   // 每次都差一点：同一个声音反复听也不腻
 function ensureAudio() {
-  if (!actx) { actx = new AudioContext(); master = actx.createGain(); master.gain.value = 0.6; master.connect(actx.destination); }
+  if (!actx) {
+    actx = new AudioContext();
+    const comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -14; comp.knee.value = 10; comp.ratio.value = 4; comp.attack.value = 0.004; comp.release.value = 0.2;
+    comp.connect(actx.destination);
+    master = actx.createGain(); master.gain.value = P.muted ? 0 : P.volume; master.connect(comp);
+    slowLP = actx.createBiquadFilter(); slowLP.type = 'lowpass'; slowLP.frequency.value = 18000; slowLP.Q.value = 0.5;
+    bus = actx.createGain(); bus.connect(slowLP); slowLP.connect(master);
+    const verb = actx.createConvolver(), wet = actx.createGain(); wet.gain.value = 0.14;
+    verb.buffer = makeIR(0.9); slowLP.connect(verb).connect(wet).connect(master);
+    amb = actx.createGain(); amb.gain.value = 0; amb.connect(master);
+    noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
   if (actx.state === 'suspended') actx.resume();
 }
-function quackSound() {
+function setVolume() { if (master) master.gain.setTargetAtTime(P.muted ? 0 : P.volume, actx.currentTime, 0.05); }
+function makeIR(len) {   // 室外的短混响：开阔水面上一点点回声，让合成音不那么「干」
+  const n = Math.floor(actx.sampleRate * len), b = actx.createBuffer(2, n, actx.sampleRate);
+  for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3; }
+  return b;
+}
+function out(x) {   // x = 世界坐标里的横向位置：左边的宝宝从左声道叫
+  if (x === undefined || !actx.createStereoPanner) return bus;
+  const p = actx.createStereoPanner(); p.pan.value = THREE.MathUtils.clamp(x / RIVER_HALF, -1, 1) * 0.7; p.connect(bus);
+  return p;
+}
+function env(dest, t, attack, peak, dur) {   // 快起、指数衰减的包络
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + attack); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  g.connect(dest); return g;
+}
+function osc(type, t, dur, dest) { const o = actx.createOscillator(); o.type = type; o.connect(dest); o.start(t); o.stop(t + dur + 0.03); return o; }
+function noise(t, dur, dest) { const s = actx.createBufferSource(); s.buffer = noiseBuf; s.connect(dest); s.start(t, Math.random() * 1.5); s.stop(t + dur + 0.03); return s; }
+function vibrato(param, t, dur, rate, depth) { const lg = actx.createGain(); lg.gain.value = depth; lg.connect(param); osc('sine', t, dur, lg).frequency.value = rate; }
+function filt(type, f, q, dest) { const b = actx.createBiquadFilter(); b.type = type; b.frequency.value = f; b.Q.value = q; b.connect(dest); return b; }
+
+// 嘎！：两个音节「嘎-嘎」。鼻音来自几个共振峰，「哇」的那一下是低通先张开再合上（像嘴一张一合）
+function quackSyl(t, f0, dur, dest) {
+  const g = env(dest, t, 0.012, 1.25, dur);   // 嘎！是玩家唯一的动作：混音里要最响亮、最清楚
+  const lp = filt('lowpass', 600, 3.5, g);
+  lp.frequency.setValueAtTime(700, t); lp.frequency.exponentialRampToValueAtTime(3400, t + dur * 0.3); lp.frequency.exponentialRampToValueAtTime(900, t + dur);
+  const src = actx.createOscillator(); src.type = 'sawtooth';
+  src.frequency.setValueAtTime(f0 * 0.9, t); src.frequency.linearRampToValueAtTime(f0 * 1.06, t + dur * 0.25); src.frequency.exponentialRampToValueAtTime(f0 * 0.68, t + dur);
+  for (const [fc, q, lv] of [[1050, 5, 1], [2150, 7, 0.55], [3300, 8, 0.22]]) {
+    const lg = actx.createGain(); lg.gain.value = lv; lg.connect(lp);
+    src.connect(filt('bandpass', fc, q, lg));
+  }
+  src.start(t); src.stop(t + dur + 0.03);
+  const rasp = actx.createGain(); rasp.gain.value = 0.18; rasp.connect(lp);   // 嗓子里的一点毛刺
+  noise(t, dur, filt('bandpass', 1600, 1.2, rasp));
+}
+function quackSound(x) {
   if (!actx) return;
-  const t = actx.currentTime;
-  for (const [delay, f0] of [[0, 480], [0.16, 430]]) {
-    const o = actx.createOscillator(); o.type = 'sawtooth';
-    o.frequency.setValueAtTime(f0, t + delay); o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + delay + 0.14);
-    const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 3;
-    const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t + delay);
-    g.gain.exponentialRampToValueAtTime(0.6, t + delay + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.15);
-    o.connect(f).connect(g).connect(master); o.start(t + delay); o.stop(t + delay + 0.17);
+  const t = actx.currentTime + 0.005, f0 = vary(300, 0.1), o = out(x);
+  quackSyl(t, f0, vary(0.17, 0.12), o);
+  quackSyl(t + vary(0.19, 0.08), f0 * vary(0.88, 0.04), vary(0.14, 0.12), o);
+}
+// 叽：小鸡式的「上扬再落下」，带一点二次谐波才像嗓子而不像电子表
+function peep(freq, vol = 0.12, x) {
+  if (!actx) return;
+  const t = actx.currentTime, f = vary(freq, 0.05), dur = vary(0.1, 0.2), g = env(out(x), t, 0.008, vol, dur);
+  for (const [mul, lv] of [[1, 1], [2, 0.16]]) {
+    const lg = actx.createGain(); lg.gain.value = lv; lg.connect(g);
+    const o = osc('sine', t, dur, lg).frequency;
+    o.setValueAtTime(f * 0.85 * mul, t); o.linearRampToValueAtTime(f * 1.12 * mul, t + dur * 0.35); o.exponentialRampToValueAtTime(f * 0.8 * mul, t + dur);
   }
 }
-function peep(freq, vol = 0.12) {
+function coldPeep(freq, vol = 0.08, x) {   // 冷得打颤的叫声：低一点、带颤音
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 1.35, t + 0.07);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-  o.connect(g).connect(master); o.start(t); o.stop(t + 0.1);
+  const t = actx.currentTime, f = vary(freq, 0.05), dur = vary(0.2, 0.15), g = env(out(x), t, 0.02, vol, dur);
+  const o = osc('triangle', t, dur, g);
+  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 0.82, t + dur);
+  vibrato(o.frequency, t, dur, vary(22, 0.15), f * 0.06);
 }
-function coldPeep(freq, vol = 0.08) {   // 冷得打颤的叫声：低一点、带颤音
+// 落水：一声「噗通」（气泡共振是往上滑的）+ 水花的嘶声 + 后面零星溅回来的小水滴
+function splashSound(x, size = 1) {
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(), lfo = actx.createOscillator(), lg = actx.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq * 0.85, t + 0.18);
-  lfo.frequency.value = 22; lg.gain.value = freq * 0.06; lfo.connect(lg).connect(o.frequency);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-  o.connect(g).connect(master); o.start(t); lfo.start(t); o.stop(t + 0.22); lfo.stop(t + 0.22);
+  const t = actx.currentTime, o = out(x);
+  const ng = env(o, t, 0.004, 0.38 * size, 0.32 * size);
+  const lp = filt('lowpass', 3200, 0.7, ng); lp.frequency.setValueAtTime(3200, t); lp.frequency.exponentialRampToValueAtTime(380, t + 0.3 * size);
+  noise(t, 0.32 * size, lp);
+  const plop = osc('sine', t, 0.08, env(o, t, 0.004, 0.3, 0.08));
+  plop.frequency.setValueAtTime(vary(320, 0.1), t); plop.frequency.exponentialRampToValueAtTime(vary(1100, 0.1), t + 0.06);
+  for (let i = 0, n = 3 + Math.floor(Math.random() * 3); i < n; i++) {
+    const td = t + 0.06 + Math.random() * 0.3, f = 1200 + Math.random() * 1400;
+    const d = osc('sine', td, 0.04, env(o, td, 0.003, 0.05 + Math.random() * 0.04, 0.04));
+    d.frequency.setValueAtTime(f, td); d.frequency.exponentialRampToValueAtTime(f * 1.7, td + 0.03);
+  }
 }
-function splashSound() {
+function thudSound(x) {   // 软软的一下（羽毛 + 肉），不是硬邦邦的敲击
   if (!actx) return;
-  const t = actx.currentTime, len = 0.35, buf = actx.createBuffer(1, actx.sampleRate * len, actx.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length) ** 2;
-  const src = actx.createBufferSource(); src.buffer = buf;
-  const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(2500, t); f.frequency.exponentialRampToValueAtTime(300, t + len);
-  const g = actx.createGain(); g.gain.value = 0.5;
-  src.connect(f).connect(g).connect(master); src.start(t);
+  const t = actx.currentTime, o = out(x);
+  const s = osc('sine', t, 0.14, env(o, t, 0.004, 0.3, 0.14));   // 撞来撞去很频繁：别太响
+  s.frequency.setValueAtTime(vary(170, 0.1), t); s.frequency.exponentialRampToValueAtTime(65, t + 0.12);
+  noise(t, 0.05, filt('lowpass', 700, 0.7, env(o, t, 0.002, 0.25, 0.05)));
 }
-function thudSound() {
+function bloop(f0 = 220, vol = 0.18, x) {
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'triangle'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(60, t + 0.15);
-  g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-  o.connect(g).connect(master); o.start(t); o.stop(t + 0.2);
+  const t = actx.currentTime, f = vary(f0, 0.05), dur = vary(0.1, 0.1);
+  const o = osc('sine', t, dur, env(out(x), t, 0.008, vol, dur));
+  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.8, t + dur * 0.8);
 }
-
-function bloop(f0 = 220, vol = 0.18) {
+function screechSound() {   // 鹰：往下滑的尖啸，带沙哑的气声
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 1.8, t + 0.08);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.1);
-  o.connect(g).connect(master); o.start(t); o.stop(t + 0.12);
-}
-function screechSound() {
-  if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), lfo = actx.createOscillator(), lg = actx.createGain(), g = actx.createGain();
-  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 2;
-  o.type = 'sawtooth'; o.frequency.setValueAtTime(2700, t); o.frequency.exponentialRampToValueAtTime(1300, t + 0.55);
-  lfo.frequency.value = 28; lg.gain.value = 90; lfo.connect(lg).connect(o.frequency);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-  o.connect(f).connect(g).connect(master); o.start(t); lfo.start(t); o.stop(t + 0.62); lfo.stop(t + 0.62);
+  const t = actx.currentTime, dur = vary(0.6, 0.1), f0 = vary(2700, 0.06), g = env(bus, t, 0.04, 0.22, dur);
+  const o = osc('sawtooth', t, dur, filt('bandpass', 2200, 2, g));
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.48, t + dur);
+  vibrato(o.frequency, t, dur, 28, 90);
+  const rasp = actx.createGain(); rasp.gain.value = 0.35; rasp.connect(g);
+  noise(t, dur, filt('bandpass', 2600, 1.5, rasp));
 }
 function whooshSound() {
   if (!actx) return;
-  const t = actx.currentTime, len = 0.4, buf = actx.createBuffer(1, actx.sampleRate * len, actx.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.sin(Math.PI * i / d.length);
-  const src = actx.createBufferSource(); src.buffer = buf;
-  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 1.5; f.frequency.setValueAtTime(400, t); f.frequency.exponentialRampToValueAtTime(1400, t + len);
-  const g = actx.createGain(); g.gain.value = 0.45;
-  src.connect(f).connect(g).connect(master); src.start(t);
+  const t = actx.currentTime, len = vary(0.4, 0.1);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.35, t + len * 0.5); g.gain.linearRampToValueAtTime(0.0001, t + len); g.connect(bus);
+  const f = filt('bandpass', 400, 1.5, g); f.frequency.setValueAtTime(vary(400, 0.15), t); f.frequency.exponentialRampToValueAtTime(vary(1400, 0.15), t + len);
+  noise(t, len, f);
 }
-function gullSound() {   // 海鸥：「嘎——呜」两声往下滑的尖叫
+function gullSound(x) {   // 海鸥：「嘎——呜」两声往下滑的尖叫
   if (!actx) return;
-  const t = actx.currentTime;
-  for (const [t0, f0] of [[0, 1500], [0.2, 1350]]) {
-    const o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = 1400; f.Q.value = 3;
-    o.type = 'sawtooth'; o.frequency.setValueAtTime(f0, t + t0); o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + t0 + 0.18);
-    g.gain.setValueAtTime(0.0001, t + t0); g.gain.exponentialRampToValueAtTime(0.2, t + t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + t0 + 0.2);
-    o.connect(f).connect(g).connect(master); o.start(t + t0); o.stop(t + t0 + 0.22);
+  const t = actx.currentTime, o = out(x);
+  for (const [t0, f0] of [[0, vary(1500, 0.06)], [vary(0.2, 0.1), vary(1350, 0.06)]]) {
+    const g = env(o, t + t0, 0.02, 0.2, 0.2);
+    const s = osc('sawtooth', t + t0, 0.2, filt('bandpass', 1400, 3, g));
+    s.frequency.setValueAtTime(f0, t + t0); s.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + t0 + 0.18);
   }
 }
-function hissSound() {   // 母鸭发火：嘶——
+function hissSound(x) {   // 母鸭发火：嘶——
   if (!actx) return;
-  const t = actx.currentTime, len = 0.5, buf = actx.createBuffer(1, actx.sampleRate * len, actx.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.min(1, i / 800) * (1 - i / d.length);
-  const src = actx.createBufferSource(); src.buffer = buf;
-  const f = actx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 3200; f.Q.value = 1.2;
-  const g = actx.createGain(); g.gain.value = 0.35;
-  src.connect(f).connect(g).connect(master); src.start(t);
+  const t = actx.currentTime, len = vary(0.5, 0.1);
+  const g = actx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.35, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + len); g.connect(out(x));
+  noise(t, len, filt('bandpass', vary(3200, 0.08), 1.2, g));
 }
-function croakSound() {   // 苍鹭：低沉的一声「呱」
+function croakSound(x) {   // 苍鹭：低沉、粗糙的一声「呱」
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain(), f = actx.createBiquadFilter();
-  f.type = 'lowpass'; f.frequency.value = 700;
-  o.type = 'square'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(95, t + 0.25);
-  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
-  o.connect(f).connect(g).connect(master); o.start(t); o.stop(t + 0.3);
+  const t = actx.currentTime, dur = vary(0.28, 0.1), g = env(out(x), t, 0.02, 0.24, dur);
+  const s = osc('square', t, dur, filt('lowpass', 700, 1, g));
+  s.frequency.setValueAtTime(vary(150, 0.06), t); s.frequency.exponentialRampToValueAtTime(95, t + dur * 0.9);
+  const rasp = actx.createGain(); rasp.gain.value = 0.5; rasp.connect(g);
+  noise(t, dur, filt('bandpass', 500, 2, rasp));
 }
-let rainLoop = null;   // 雨声：高频的循环噪声
+let rainLoop = null;   // 雨声：中高频的循环噪声（去掉刺耳的最高频）
 function rainGain(v) {
   if (!actx) return;
   if (!rainLoop) {
-    const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const f = actx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 1800;
-    const g = actx.createGain(); g.gain.value = 0;
-    src.connect(f).connect(g).connect(master); src.start();
-    rainLoop = g;
+    const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    rainLoop = actx.createGain(); rainLoop.gain.value = 0; rainLoop.connect(amb);
+    src.connect(filt('highpass', 900, 0.7, filt('lowpass', 6500, 0.7, rainLoop))); src.start();
   }
-  rainLoop.gain.setTargetAtTime(v * 0.16, actx.currentTime, 0.3);
+  rainLoop.gain.setTargetAtTime(v * 0.9, actx.currentTime, 0.3);
 }
 let rumble = null;   // 急流的轰鸣：循环噪声，音量随离落差的距离变
 function rumbleGain(v) {
   if (!actx) return;
   if (!rumble) {
-    const buf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-    const src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
-    const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 650;
-    const g = actx.createGain(); g.gain.value = 0;
-    src.connect(f).connect(g).connect(master); src.start();
-    rumble = g;
+    const src = actx.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    rumble = actx.createGain(); rumble.gain.value = 0; rumble.connect(master);
+    src.connect(filt('lowpass', 650, 0.7, rumble)); src.start();
   }
   rumble.gain.setTargetAtTime(v * 0.28, actx.currentTime, 0.15);
 }
-function chompSound() {
+function chompSound(x) {   // 水下黑影咬住：湿乎乎的「咕咚」
   if (!actx) return;
-  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
-  o.type = 'square'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
-  g.gain.setValueAtTime(0.35, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-  o.connect(g).connect(master); o.start(t); o.stop(t + 0.16);
+  const t = actx.currentTime, o = out(x);
+  const s = osc('sine', t, 0.18, env(o, t, 0.005, 0.4, 0.18));
+  s.frequency.setValueAtTime(vary(230, 0.08), t); s.frequency.exponentialRampToValueAtTime(55, t + 0.16);
+  const lp = filt('lowpass', 1500, 2, env(o, t, 0.003, 0.4, 0.14)); lp.frequency.setValueAtTime(1500, t); lp.frequency.exponentialRampToValueAtTime(200, t + 0.14);
+  noise(t, 0.14, lp);
+  for (let i = 0; i < 3; i++) {   // 冒上来的几个气泡
+    const td = t + 0.12 + i * vary(0.07, 0.3), f = vary(260, 0.2);
+    const b = osc('sine', td, 0.08, env(o, td, 0.006, 0.07, 0.08));
+    b.frequency.setValueAtTime(f, td); b.frequency.exponentialRampToValueAtTime(f * 1.8, td + 0.07);
+  }
+}
+
+// 环境声：一直在的流水（低沉的褐噪声 + 忽大忽小的哗啦声）和远处偶尔的鸟叫。Goose 的环境安静但不空
+const AMB = { nodes: null, flutter: 0, bird: 3 };
+function startAmbience() {
+  const n = actx.sampleRate * 3, b = actx.createBuffer(1, n, actx.sampleRate), d = b.getChannelData(0);
+  let last = 0; for (let i = 0; i < n; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; d[i] = last * 3.5; }
+  const low = actx.createBufferSource(); low.buffer = b; low.loop = true;
+  const lowG = actx.createGain(); lowG.gain.value = 0.45; lowG.connect(amb);
+  low.connect(filt('lowpass', 700, 0.7, lowG)); low.start();
+  const bab = actx.createBufferSource(); bab.buffer = noiseBuf; bab.loop = true;
+  const babG = actx.createGain(); babG.gain.value = 0.2; babG.connect(amb);
+  const bp = filt('bandpass', 2200, 1.5, babG); bab.connect(bp); bab.start();
+  return { babG, bp };
+}
+function birdSong() {
+  const t0 = actx.currentTime, p = actx.createStereoPanner(); p.pan.value = (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5); p.connect(amb);
+  const up = Math.random() < 0.5, base = 2600 + Math.random() * 1800;
+  for (let i = 0, n = 2 + Math.floor(Math.random() * 4); i < n; i++) {
+    const t = t0 + i * vary(0.13, 0.2), dur = vary(0.08, 0.2);
+    const o = osc('sine', t, dur, env(p, t, 0.006, 0.22, dur));
+    o.frequency.setValueAtTime(up ? base : base * 1.25, t); o.frequency.exponentialRampToValueAtTime(up ? base * 1.3 : base * 0.8, t + dur);
+  }
+}
+function ambienceTick(dt, playing) {
+  if (!actx) return;
+  if (!AMB.nodes) AMB.nodes = startAmbience();
+  const t = actx.currentTime;
+  amb.gain.setTargetAtTime(playing ? 0.085 : 0.05, t, 0.8);   // 压在宝宝最小声的叽叽之下；翻笔记本时也留一点水声
+  if ((AMB.flutter -= dt) <= 0) {
+    AMB.flutter = 0.08 + Math.random() * 0.15;
+    AMB.nodes.babG.gain.setTargetAtTime((0.12 + Math.random() * 0.3) * (1 - 0.6 * RN.k), t, 0.05);
+    AMB.nodes.bp.frequency.setTargetAtTime(1600 + Math.random() * 1600, t, 0.08);
+  }
+  if ((AMB.bird -= dt) <= 0) { AMB.bird = 4 + Math.random() * 7; if (playing && RN.k < 0.4) birdSong(); }   // 下雨鸟就不叫了
+  slowLP.frequency.setTargetAtTime(S.slowMo > 0 ? 1600 : 18000, t, 0.06);   // 扒边救援的慢动作：整个世界闷下去（教学放慢时不闷）
 }
 
 // ---------- 水花粒子 ----------
@@ -803,6 +884,7 @@ addEventListener('keydown', e => {
   else if (e.code === 'KeyR') { if (S.over) proceed(); else { C.roster = C.startRoster.slice(); reset(); S.started = true; } }   // R：重来这一天
   else if (e.code === 'Space') { if (S.started && !S.over && !S.arrived) { S.paused = true; S.shiftDown = false; book.show(pausePage()); } e.preventDefault(); }
   else if (e.code === 'KeyH') gui._hidden ? gui.show() : gui.hide();
+  else if (e.code === 'KeyM') { P.muted = !P.muted; saveParams(); setVolume(); alertless(P.muted ? '静音' : '声音：开'); }
   else if (e.code === 'KeyV') { const ks = Object.keys(POST_MODES); P.post = ks[(ks.indexOf(P.post) + 1) % ks.length]; saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); alertless('画面风格：' + POST_NAMES[P.post]); }
   else if (e.code === 'KeyF') { P.focus = !P.focus; applyFocus(); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
   else if (/^Digit[1-4]$/.test(e.code)) { applyStyle(['orig', 'A', 'B', 'C'][+e.code.slice(5) - 1]); saveParams(); gui.controllersRecursive().forEach(c => c.updateDisplay()); }
@@ -840,7 +922,7 @@ function pausePage() {
 function startDisplay() {
   if (TUT.cur === 'hold') learn('hold');
   S.display = P.displayTime; S.displayCd = P.displayCooldown; S.shakeT = 0; S.seen.add('display');
-  quackSound(); setTimeout(quackSound, 260); setTimeout(quackSound, 560);
+  quackSound(S.x); setTimeout(() => quackSound(S.x), 260); setTimeout(() => quackSound(S.x), 560);
   // 天敌都被吸引过来、放弃眼前的目标
   if (['approach', 'circle', 'dive'].includes(hawkState.phase)) { hawkState.phase = 'leave'; hawkState.t = 0; hawkState.target = null; }
   if (HR.phase === 'cock') { HR.phase = 'recover'; HR.t = 0; HR.target = null; HR.cd = 4; }
@@ -860,7 +942,7 @@ function updateDisplay(dt) {
 
 function quack() {
   if (!S.started || S.over || S.arrived || S.quackCd > 0) return;
-  ensureAudio(); quackSound(); TUT.quacked = true;
+  ensureAudio(); quackSound(S.x); TUT.quacked = true;
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; bloop(330, 0.12); }   // 妈妈凶回去：别家母鸭退了
   // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
@@ -1015,7 +1097,7 @@ function fall(d) {
   d.wv.set(out.x * 1.5 + d.vx * 0.8 + S.vx, 2.4, out.z * 1.5 - d.vz * 0.8);
   d.spin.set(rand(-12, 12), rand(-8, 8), rand(-12, 12));
   d.zz.visible = false;
-  peep(3200, 0.2); d.mouth = 1;
+  peep(3200, 0.2, d.wp.x); d.mouth = 1;
   if (P.slowMoOnFall) S.slowMo = 0.7;
 }
 
@@ -1025,7 +1107,7 @@ const train = () => ducklings.filter(d => d.state === 'floating').sort((a, b) =>
 function startHop(d) {
   d.state = 'hopping'; d.hopT = 0; d.hopFrom = d.wp.clone();
   d.x = THREE.MathUtils.clamp((d.wp.x - S.x) * 0.3, -0.15, 0.15); d.z = -BACK_B * 0.55;   // 从尾巴爬上来，落在背的后部
-  S.catches++; peep(2000, 0.18); splash(d.wp, 8, 0.5);
+  S.catches++; peep(2000, 0.18, d.wp.x); splash(d.wp, 8, 0.5);
 }
 
 function step(dt) {
@@ -1067,11 +1149,11 @@ function step(dt) {
       // 长大了的宝宝：暖和、平静时会自己跳下水游一会儿（妈妈渐渐从「驮着」变成「领着」）
       if (growth() >= 0.5 && d.teeter === 0 && d.warmth > 0.85 && !S.arrived && !bigActive() && Math.random() < dt * 0.03 * growth()) { jumpOff(d); continue; }
       if (r > 1) {
-        if (d.teeter === 0) { peep(3000, 0.22); d.mouth = 1; }   // 开始扒边：尖叫
+        if (d.teeter === 0) { peep(3000, 0.22, S.x + d.x); d.mouth = 1; }   // 开始扒边：尖叫
         d.teeter += dt;
         if (r > 1 + P.teeterMargin || d.teeter > P.teeterTime) { d.teeter = 0; fall(d); }
       } else if (d.teeter > 0) {
-        d.teeter = 0; S.saves++; peep(1300, 0.18);     // 救回来了
+        d.teeter = 0; S.saves++; peep(1300, 0.18, S.x + d.x);     // 救回来了
         fx.sparkle(d.mesh.getWorldPosition(new THREE.Vector3()), 5);
       }
     } else if (d.state === 'falling') {
@@ -1080,7 +1162,7 @@ function step(dt) {
       if (d.wp.y <= 0.02) {
         d.wp.y = 0.02; d.state = 'floating'; d.floatT = 0; d.fellAt = performance.now();
         fx.ring(d.wp.x, d.wp.z, { r0: 0.1, r1: 0.9, life: 0.7, opacity: 0.8 }); fx.ring(d.wp.x, d.wp.z, { r0: 0.05, r1: 0.5, life: 0.9, opacity: 0.6 });
-        splash(d.wp, 18); splashSound();
+        splash(d.wp, 18); splashSound(d.wp.x, 0.8);
       }
     } else if (d.state === 'floating') {
       // 在水里：游到妈妈身后排成一串（秋沙鸭宝宝贴着妈妈的尾流游）
@@ -1098,7 +1180,7 @@ function step(dt) {
       if (l > 0.001) { d.wp.x += dx / l * stepLen; d.wp.z += dz / l * stepLen; }
       d.mesh.rotation.x *= 0.9; d.mesh.rotation.z *= 0.9;
       d.mesh.rotation.y += (0 - d.mesh.rotation.y) * Math.min(1, 4 * dt);   // 和妈妈一样朝上游
-      if (d.warmth <= 0) { d.state = 'queued'; d.queueIdx = S.queue.length; S.queue.push(d); peep(900, 0.12); }
+      if (d.warmth <= 0) { d.state = 'queued'; d.queueIdx = S.queue.length; S.queue.push(d); peep(900, 0.12, d.wp.x); }
     } else if (d.state === 'hopping') {
       d.hopT += dt / 0.35; const k = Math.min(1, d.hopT);
       const target = backGroup.localToWorld(tmpV.set(d.x, backHeight(d.x, d.z), -d.z));
@@ -1109,7 +1191,7 @@ function step(dt) {
         d.vx = -d.x * 0.6; d.vz = -d.z * 0.6; d.teeter = 0; d.scramble = P.scrambleTime;
         // 落背冲击：从哪边跳上来，妈妈就往哪边一沉
         S.rollV += d.mass * d.x / BACK_A * P.hopImpact; S.pitchV += d.mass * d.z / BACK_B * P.hopImpact * 0.8;
-        thudSound(); peep(1500, 0.18); d.mouth = 1; d.land = 1;
+        thudSound(S.x); peep(1500, 0.18, S.x); d.mouth = 1; d.land = 1;
         fx.sparkle(d.mesh.getWorldPosition(new THREE.Vector3()), 4);
       }
     } else if (d.state === 'eaten') {
@@ -1335,7 +1417,7 @@ function arrive() {
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; }
   if (HR.phase === 'cock') { HR.phase = 'recover'; HR.t = 0; HR.target = null; }
   if (GL.phase === 'call' || GL.phase === 'swoop') { GL.phase = 'leave'; GL.t = 0; GL.target = null; }
-  quackSound(); S.flap = 0.5;
+  quackSound(S.x); S.flap = 0.5;
   const fam = ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state));
   fam.forEach((d, i) => { d.homeDelay = 0.8 + i * 0.35; d.homeIdx = i; d.homeN = fam.length; });
   S.homeCount = fam.length;
@@ -1777,7 +1859,7 @@ function updateHeron(dt, flow) {
       splash(new THREE.Vector3(HR.tp.x, 0, HR.tp.z), 10, 0.6);
       if (ok && !shielded) {
         if (d.state === 'onBack' || d.state === 'hopping') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
-        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25); splashSound();
+        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25, d.wp.x); splashSound(d.wp.x);
         if (P.slowMoOnFall) S.slowMo = 0.5;
         HR.phase = 'eat';
       } else { whooshSound(); HR.phase = 'recover'; HR.target = null; }
@@ -1839,7 +1921,7 @@ function updateGull(dt) {
       const selfDive = growth() >= 0.66 && (d.state === 'floating' || d.state === 'queued');
       if (!miss && !(S.cover > 0) && !selfDive) {
         if (d.state === 'onBack') { d.mesh.getWorldPosition(d.wp); scene.attach(d.mesh); }
-        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25); gullSound(); splash(tp, 8, 0.5);
+        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25, d.wp.x); gullSound(d.wp.x); splash(tp, 8, 0.5);
         if (P.slowMoOnFall) S.slowMo = 0.5;
         GL.phase = 'carry';
       } else { whooshSound(); fx.ring(tp.x, tp.z, { r0: 0.15, r1: 1.0, life: 0.5, opacity: 0.5, drift: 0 }); GL.phase = 'leave'; GL.target = null; }
@@ -1913,7 +1995,7 @@ function updateLurker(dt) {
     if (!inWater) { L.phase = 'leave'; L.timer = 1; }   // 已经被捞上背：扑空
     else if (L.timer <= 0) {
       if (Math.hypot(d.wp.x - L.x, d.wp.z - L.z) < P.lurkerReach) {
-        d.state = 'eaten'; S.eaten++; fx.ring(d.wp.x, d.wp.z, { r0: 0.1, r1: 1.1, life: 0.8, opacity: 0.7, color: 0x0b2a3a }); chompSound(); peep(3400, 0.25); splashSound();
+        d.state = 'eaten'; S.eaten++; fx.ring(d.wp.x, d.wp.z, { r0: 0.1, r1: 1.1, life: 0.8, opacity: 0.7, color: 0x0b2a3a }); chompSound(d.wp.x); peep(3400, 0.25, d.wp.x); splashSound(d.wp.x);
         splash(d.wp, 22, 1.1); if (P.slowMoOnFall) S.slowMo = 0.5;
       } else { chompSound(); splash(new THREE.Vector3(L.x, 0, L.z), 14, 0.8); }
       L.phase = 'leave'; L.timer = 1;
@@ -2015,10 +2097,10 @@ function syncVisuals(realDt, simDt) {
       ART.animateDuckling(d.mesh.children[0], t, { seed: d.seed ??= Math.random(), moving: sp > 0.05 && !d.sleeping, sleeping: d.sleeping, panic: d.teeter > 0 || r > 0.85,
         peep: Math.max(0, d.mouth || 0), land: Math.max(0, d.land || 0), amt: P.chibi, crouch: S.cover > 0 ? 1 : 0, cold: 1 - d.warmth,
         lookUp: (hawkState.phase === 'dive' && hawkState.target === d) || (GL.phase === 'swoop' && GL.target === d) || (HR.phase === 'cock' && HR.target === d) });
-      if (d.warmth < 0.5 && simDt > 0 && Math.random() < simDt * 0.5) { coldPeep(1900, 0.04); d.mouth = 1; }   // 背上还冷着：小声打颤
+      if (d.warmth < 0.5 && simDt > 0 && Math.random() < simDt * 0.5) { coldPeep(1900, 0.04, S.x + d.x); d.mouth = 1; }   // 背上还冷着：小声打颤
       d.peepCd -= simDt;
-      if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
-      else if (!d.sleeping && Math.random() < simDt * 0.12 * P.chibi) { peep(2300 + Math.random() * 600, 0.025); d.mouth = 1; }   // 闲着偶尔叽一声
+      if (r > 0.72 && d.peepCd <= 0) { peep(1700 + r * 1500, 0.06 + r * 0.06, S.x + d.x); d.peepCd = 0.6 - r * 0.4 + Math.random() * 0.2; d.mouth = 1; }
+      else if (!d.sleeping && Math.random() < simDt * 0.12 * P.chibi) { peep(2300 + Math.random() * 600, 0.025, S.x + d.x); d.mouth = 1; }   // 闲着偶尔叽一声
     } else {
       d.mesh.position.copy(d.wp);
       d.help.visible = d.state === 'floating';
@@ -2050,7 +2132,7 @@ function syncVisuals(realDt, simDt) {
         if (d.callT <= 0) {
           const c = 1 - d.warmth;
           d.callT = 0.7 + c * 0.9 + Math.random() * 0.3; d.mouth = 1;
-          c > 0.4 ? coldPeep(2300 - c * 700, 0.09 * (1 - c * 0.5)) : peep(2700 + Math.random() * 300, 0.1);
+          c > 0.4 ? coldPeep(2300 - c * 700, 0.09 * (1 - c * 0.5), d.wp.x) : peep(2700 + Math.random() * 300, 0.1, d.wp.x);
         }
       }
     }
@@ -2201,6 +2283,7 @@ function frame(now) {
     S.dropT = Math.max(0, S.dropT - simDt); S.shake = Math.max(0, S.shake - realDt);
   }
   if (!(S.started && !S.paused && !S.over)) rumbleGain(0);
+  ambienceTick(realDt, S.started && !S.paused && !S.over);
   syncVisuals(realDt, simDt);
   updateTutorial(realDt);
   book.update(realDt);
@@ -2233,6 +2316,7 @@ f2.add(P, 'wanderStrength', 0, 3, 0.1).name('乱跑力度').onChange(onCh);
 f2.add(P, 'swell', 0, 4, 0.1).name('水面涌动').onChange(onCh);
 f2.add(P, 'showLabels').name('显示性格标签').onChange(onCh);
 gui.add(P, 'chibi', 0, 1, 0.05).name('🐥 宝宝夸张度').onChange(onCh);
+gui.add(P, 'volume', 0, 1, 0.05).name('🔊 音量（M 静音）').onChange(() => { onCh(); setVolume(); });
 gui.add(P, 'debugUI').name('🔧 调试 UI（HUD/文字/红圈）').onChange(() => { applyFocus(); onCh(); });
 gui.add(P, 'post', Object.fromEntries(Object.entries(POST_NAMES).map(([k, v]) => [v, k]))).name('🖌 画面风格（V）').onChange(onCh);
 const f6 = gui.addFolder('落水与爬回（嘎！接人）');
@@ -2333,7 +2417,8 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; } };   // 调试用
+window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; },
+  sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, birdSong } };   // 调试用
 requestAnimationFrame(frame);
 </script>
 </body>
