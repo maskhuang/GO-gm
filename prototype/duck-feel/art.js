@@ -485,7 +485,8 @@ export function createShore(scene, half) {
       }
       for (const it of items) {
         let z = it.u + dist;
-        if (z > NEAR) { place(it, it.u - SPAN); z = it.u + dist; }
+        // 两个方向都要绕回来：新的一天 dist 归零时，装饰不能还留在上一天的远处（否则河岸会光秃秃一大段）
+        if (z > NEAR || z < NEAR - SPAN) { place(it, it.u - SPAN * Math.floor((z - (NEAR - SPAN)) / SPAN)); z = it.u + dist; }
         it.m.position.z = z;
         if (it.def.sway) it.m.rotation.z = Math.sin(t * 1.4 + it.phase) * it.def.sway;
         if (it.def.float) { it.m.position.y = Math.sin(t * 1.2 + it.phase) * 0.006; it.m.rotation.y += dt * 0.05; }

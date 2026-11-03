@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Duck Shift</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦆</text></svg>">
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3e8;
     font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
@@ -75,7 +76,7 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=13';
+import * as ART from './art.js?v=14';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
 import { createNotebook, createGlyph } from './notebook.js?v=10';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
@@ -2454,7 +2455,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>
