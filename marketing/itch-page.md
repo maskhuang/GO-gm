@@ -26,6 +26,7 @@ Desktop browser with mouse and keyboard.
 - **Shift:** quack (from day 3, hold it to play hurt)
 - **Space:** pause (sound and music volume are there)
 - **M:** mute
+- **E** on the title page: endless crèche mode
 - **C** on the title or pause page: credits
 
 ### Credits

@@ -350,10 +350,12 @@ const ORPHAN_KINDS = [
   { kind: 'sleepy',  name: '捡来的', color: 0xe6bd78, mass: 1, scale: 0.95 },
   { kind: 'chubby',  name: '捡来的', color: 0xd99f4c, mass: 2, scale: 1.25 },
 ];
-const ORPHAN_NAMES = ['Rusty', 'Ginger', 'Nutmeg', 'Toffee', 'Biscuit', 'Hazel', 'Pepper', 'Maple'];
+const ORPHAN_NAMES = ['Rusty', 'Ginger', 'Nutmeg', 'Toffee', 'Biscuit', 'Hazel', 'Pepper', 'Maple', 'Sprout', 'Pebble', 'Button', 'Waffle', 'Noodle', 'Mochi', 'Bean', 'Fig',
+  'Clover', 'Puddle', 'Crumb', 'Sunny', 'Tofu', 'Pickle', 'Juniper', 'Dot', 'Olive', 'Pud', 'Bramble', 'Kiwi', 'Scout', 'Wren', 'Gus', 'Poppy', 'Sesame', 'Moss', 'Bubbles', 'Taffy'];
 function spawnOrphan(msg = '有只迷路的宝宝！游过去接它 🐥', ms) {
   const used = new Set(ducklings.map(o => o.roster?.en));
-  const k = { ...ORPHAN_KINDS[Math.floor(Math.random() * ORPHAN_KINDS.length)], en: ORPHAN_NAMES.find(n => !used.has(n)) || 'Smudge' };
+  const free = ORPHAN_NAMES.filter(n => !used.has(n));
+  const k = { ...ORPHAN_KINDS[Math.floor(Math.random() * ORPHAN_KINDS.length)], en: free[Math.floor(Math.random() * free.length)] || 'Smudge' };
   const d = makeDucklingEntry(grown(k), ducklings.length);
   d.roster = { ...k, adopted: true };
   scene.attach(d.mesh);
@@ -364,7 +366,20 @@ function spawnOrphan(msg = '有只迷路的宝宝！游过去接它 🐥', ms) {
   ducklings.push(d);
   hint(msg, ms);
 }
+const familyN = () => ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state)).length;
+function updateCreche(dt) {
+  S.peak = Math.max(S.peak || 0, familyN());
+  S.crecheT = (S.crecheT ?? 6) - dt;
+  if (S.crecheT > 0 || S.arrived) return;
+  const strays = ducklings.filter(d => d.state === 'stray').length;
+  if (ducklings.length < 40 && strays < 4) {   // 有时一只，有时一小窝走散的一起漂过来
+    const n = Math.random() < 0.3 ? 2 + Math.floor(Math.random() * 2) : 1, x0 = rand(-1, 1) * (RIVER_HALF - 1.6);
+    for (let i = 0; i < n; i++) { spawnOrphan(); const d = ducklings[ducklings.length - 1]; d.wp.x = x0 + (i - (n - 1) / 2) * 0.35; d.wp.z -= i * 0.3; d.strayVx *= 0.3; }
+  }
+  S.crecheT = THREE.MathUtils.lerp(9, 5, Math.min(1, S.time / 300)) * rand(0.8, 1.2);
+}
 function updateOrphans(dt, flow) {
+  if (isCreche()) updateCreche(dt);
   if (!P.director) {
     S.orphanTimer -= dt * P.hazardRate;
     if (S.orphanTimer <= 0) { spawnOrphan(); S.orphanTimer = P.orphanInterval * rand(0.75, 1.25); }
@@ -567,7 +582,7 @@ function stinger(happy) {
 function musicTick(dt, playing) {
   if (!actx || !MUS.score) return;
   const t = actx.currentTime;
-  const failed = S.over && C.pending === 'retry';
+  const failed = S.over && (C.pending === 'retry' || C.pending === 'creche');
   if (S.arrived && !MUS.was.arrived) stinger(true);
   else if (failed && !MUS.was.failed) stinger(false);
   MUS.was.arrived = S.arrived; MUS.was.failed = failed;
@@ -575,12 +590,12 @@ function musicTick(dt, playing) {
   MUS.int += (target - MUS.int) * Math.min(1, dt * (target > MUS.int ? 4 : 0.5));   // 紧张来得快、退得慢
   musicOut().gain.setTargetAtTime(P.musicVolume * (playing ? 1 : 0.7), t, 0.4);
   // 一天一首；换天从头弹
-  const pi = (C.day || 0) % MUS.score.length, piece = MUS.score[pi];
+  const pi = (isCreche() ? (C.cPiece || 0) : (C.day || 0)) % MUS.score.length, piece = MUS.score[pi];
   if (pi !== MUS.piece) { MUS.piece = pi; MUS.st = 0; MUS.idx = 0; MUS.playing = false; MUS.gap = 1.5; }
   if (!MUS.playing) {
     MUS.gap -= dt;
     if (MUS.gap > 0 && MUS.int < 0.5) return;   // 平静时的留白：只有水声；真有危险才立刻接上
-    if (MUS.st >= piece.end - 0.1) { MUS.st = 0; MUS.idx = 0; }   // 弹完一遍从头再来
+    if (MUS.st >= piece.end - 0.1) { if (isCreche()) { C.cPiece = (C.cPiece || 0) + 1; return; } MUS.st = 0; MUS.idx = 0; }   // 弹完一遍从头再来（托儿所：换下一首）
     MUS.playing = true; MUS.at = t + 0.05;
   }
   // 推进乐谱时钟：紧张时略快
@@ -881,7 +896,7 @@ function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
     rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0, seen: new Set(), fed: 0, display: 0, displayCd: 0, holdT: 0, stare: 0, stareCd: 0, oof: 0,
-    quacks: 0, drove: 0, minWarm: 1, layer: false, layerEaten0: 0, layerClean: 0 });
+    quacks: 0, drove: 0, minWarm: 1, layer: false, layerEaten0: 0, layerClean: 0, peak: 0, crecheT: 6 });
   endRapids(); resetDirector();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
@@ -906,6 +921,8 @@ addEventListener('keydown', e => {
   if (book.visible) {
     if (e.repeat) return;
     if (e.code === 'KeyC') toggleCredits();
+    else if (e.code === 'KeyE' && !S.started && !creditsOpen) startCreche();   // 标题页：E 进托儿所（无尽）
+    else if (e.code === 'KeyS' && S.over && C.pending === 'creche') backToStory();
     else if (S.paused && !creditsOpen && pauseSetting(e.code)) e.preventDefault();
     else if (e.key === 'Shift' || e.code === 'Space' || e.code === 'Enter') { onContinue(); e.preventDefault(); }   // 翻过这一页
     return;
@@ -936,8 +953,9 @@ function hideBanner() { book.hide(); }
 const plain = (html) => html.replace(/<br\s*\/?>/g, '\n').replace(/<[^>]+>/g, '');
 function titlePage() {
   return { big: 'Duck Shift', sub: "A Mother Duck's First Two Weeks",
-    lines: ["Your ducklings hatched yesterday. Carry them down the river until they're grown.", 'Meet Pip, who chases butterflies; Dozy, who naps anywhere; Bun, who is heavy; and the twins Tic and Tac, who squabble.', ...(best ? [`Best run: ${best.home} grew up`] : [])],
-    footer: '(click to begin · C: credits)' };
+    lines: ["Your ducklings hatched yesterday. Carry them down the river until they're grown.", 'Meet Pip, who chases butterflies; Dozy, who naps anywhere; Bun, who is heavy; and the twins Tic and Tac, who squabble.',
+      [best ? `Best run: ${best.home} grew up` : '', crecheBest ? `Biggest crèche: ${crecheBest.peak}` : ''].filter(Boolean).join('   ·   ')].filter(Boolean),
+    footer: '(click to begin · E: endless crèche · C: credits)' };
 }
 function familyDoodles() {   // 一家子的涂鸦：到家/还在 = 黄，收养的 = 麻黄，没了 = 虚线；底下写名字，画出各自的特征
   return ducklings.filter(d => d.state !== 'stray').map(d => ({ kind: ['eaten', 'carried'].includes(d.state) ? 'lost' : d.roster?.adopted ? 'adopt' : 'home',
@@ -972,8 +990,8 @@ function journeyAwards(rosters) {
 }
 function pausePage() {
   const onB = ducklings.filter(d => d.state === 'onBack').length, inW = ducklings.filter(d => ['floating', 'queued', 'falling', 'hopping'].includes(d.state)).length;
-  return { title: `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
-    lines: [`${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home. ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`,
+  return { title: isCreche() ? 'The Crèche · Taking a Breather' : `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
+    lines: [`${isCreche() ? `${Math.round(S.dist)} m so far.` : `${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home.`} ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`,
       `Mouse: lean to keep them balanced.   Shift: quack.${C.day >= 1 ? '   Hold Shift: play hurt.' : ''}`,
       `Sound ${pct(P.volume)} (← →)    Music ${pct(P.musicVolume)} (↑ ↓)    M: ${P.muted ? 'sound back on' : 'mute'}    C: credits`],
     footer: '(click or press Space to carry on)', scale: 0.85, compact: true };
@@ -1233,7 +1251,7 @@ function step(dt) {
   let distRoll = 0;
   if (wake.active) distRoll = Math.sin(wake.t * 7.5) * 3.2 * Math.max(0, 1 - wake.t / 3.5) * wake.side;
   // 水面涌动：两个不同频率的起伏叠加，越往后越大；到家后平静
-  const swT = S.time || 0, swK = S.arrived ? 0 : P.swell * (0.6 + 0.6 * Math.min(1, S.dist / dayLen()));
+  const swT = S.time || 0, swK = S.arrived ? 0 : P.swell * (0.6 + 0.6 * Math.min(1, isCreche() ? S.time / 300 : S.dist / dayLen()));
   distRoll += swK * (Math.sin(swT * 1.3) + 0.6 * Math.sin(swT * 2.9 + 1.7));
   const distPitch = swK * 0.7 * (Math.sin(swT * 1.1 + 0.5) + 0.5 * Math.sin(swT * 3.3));
   if (FL.phase === 'snag') { distRoll += FL.side * P.lineDrag; S.vx += FL.side * 0.6 * dt; }   // 钓线缠住一只脚：拖着那边往下沉、往那边偏
@@ -1439,17 +1457,27 @@ const DAYS = [
     intro: 'Twelve days old. They swim on their own most of the time; you are leading more than carrying.<br>Last leg: down to the big lake, with its gulls and other duck families.' },
 ];
 const C = { day: 0, roster: [], startRoster: [], nextRoster: null, pending: null };   // roster：家里有哪些宝宝（跨天保留）
-const curDay = () => DAYS[Math.min(C.day, DAYS.length - 1)];
+// 托儿所（无尽模式）：真实的秋沙鸭会把几窝雏鸭合成一大群，由一只母鸭带着。没有终点，一路收留走散的宝宝，看能带多大一群
+const CRECHE_DAY = { age: 5, g: 0.33, len: Infinity, unlock: [] };
+const isCreche = () => C.mode === 'creche';
+const curDay = () => isCreche() ? CRECHE_DAY : DAYS[Math.min(C.day, DAYS.length - 1)];
 const growth = () => curDay().g;
 const dayLen = () => P.journeyLen * curDay().len;            // 默认 600 → 450 / 540 / 630 / 720 米
 const freezeT = () => P.lostTime * (1 + 1.2 * growth());      // 越大越耐冷
 const swimMul = () => 1 + 0.7 * growth();                      // 越大游得越快
 const grown = k => ({ ...k, scale: k.scale * (0.85 + 0.45 * growth()), mass: k.mass * (1 + 0.5 * growth()) });
-function newCampaign() { C.day = 0; C.roster = KINDS.map(k => ({ ...k })); C.pending = null; DIR.unlocked = []; }
+function newCampaign() { C.mode = 'story'; C.day = 0; C.roster = KINDS.map(k => ({ ...k })); C.pending = null; DIR.unlocked = []; }
+const ALL_EVENTS = [...new Set(DAYS.flatMap(d => d.unlock.map(u => u.ev)))];
+function startCreche() {   // C.day 记成最后一天：难度、拟伤、叠加都按最后一天来
+  C.mode = 'creche'; C.day = DAYS.length - 1; C.roster = KINDS.map(k => ({ ...k })); C.pending = null; C.cPiece = 0;
+  reset(); S.started = true; book.hide();
+}
+function backToStory() { newCampaign(); reset(); S.started = false; book.show(titlePage()); }
 function proceed() {   // 结算画面点一下：下一天 / 重来这一天 / 新的旅程
   if (C.pending === 'next') { C.roster = C.nextRoster; C.day++; }
   else if (C.pending === 'retry') C.roster = C.startRoster.slice();
   else if (C.pending === 'new') newCampaign();
+  else if (C.pending === 'creche') { C.roster = KINDS.map(k => ({ ...k })); C.cPiece = 0; }
   C.pending = null; reset(); S.started = true;
 }
 
@@ -1477,6 +1505,7 @@ const predatorActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' ||
 function resetDirector() {   // 每天开始：已经登场过的威胁保留（跨天），今天的新威胁按当天的时间表登场
   for (let i = 0; i < Math.min(C.day, DAYS.length); i++) for (const u of DAYS[i].unlock) if (!DIR.unlocked.includes(u.ev)) DIR.unlocked.push(u.ev);   // 前几天的威胁都算见过了（哪怕那天提前到家）
   const hasBig = DIR.unlocked.some(e => BIG.includes(e)), hasSmall = DIR.unlocked.some(e => SMALL.includes(e));
+  if (isCreche()) { DIR.unlocked = ALL_EVENTS.slice(); Object.assign(DIR, { t: 0, nextBig: 18, nextSmall: 999, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false }); return; }   // 托儿所：一开始就什么都可能来；走散的宝宝由自己的计时器送来
   Object.assign(DIR, { t: 0, nextBig: hasBig ? 20 : 0, nextSmall: hasSmall ? 14 : 0, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false });
 }
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
@@ -1520,8 +1549,10 @@ function updateDirector(dt) {
     DIR.lastBig = ev; triggerEvent(ev, false);
     return;
   }
+  if (isCreche() && DIR.nextSmall === 999) DIR.nextSmall = 24;
   if (smalls.length && !big && !warm && !wake.active && DIR.t >= DIR.nextSmall) {
-    triggerEvent(smalls[Math.floor(Math.random() * smalls.length)], false);
+    const pool = isCreche() ? smalls.filter(e => e !== 'orphan') : smalls;
+    triggerEvent(pool[Math.floor(Math.random() * pool.length)], false);
     DIR.nextSmall = DIR.t + THREE.MathUtils.lerp(22, 12, prog) * rand(0.8, 1.2) / Math.max(0.1, P.hazardRate);
   }
 }
@@ -1554,6 +1585,8 @@ function journeyFlow() {
 }
 function updateJourney(dt) {
   if (!S.arrived) S.time += dt;
+  HOME.group.visible = !isCreche();
+  if (isCreche()) return;   // 托儿所没有终点
   HOME.group.position.set(0, 0, (S.z - dayLen() - HOME_AHEAD) + S.dist);   // 小岛固定在地面坐标上
   for (const l of HOME.lily) l.position.y = Math.sin(performance.now() / 800 + l.position.x) * 0.006;
   const rem = dayLen() - S.dist;
@@ -1616,6 +1649,7 @@ const NOTES = {
   kayak:   ['🛶', 'Give Them Space', 'Boats and people that come too close can scatter a brood, and a separated duckling may never find its mother again. If you see a duck family, take the long way round.'],
   dive:    ['🤿', 'Diving at One Week', 'Merganser ducklings dive within days of hatching, catching insects underwater. Diving is also how they escape danger.'],
   sawbill: ['🐟', 'Saw-Toothed Bill', "A merganser's bill is long and thin, lined with backward-pointing serrations that grip slippery fish. Hence the nickname \"sawbill\"."],
+  creche:  ['👪', 'Crèches', 'Common merganser broods often merge into a crèche, sometimes dozens of ducklings strong, looked after by one or a few females. Strays that lose their own mother can join in.'],
   fledge:  ['🪽', 'Not Flying Yet', 'After two weeks the ducklings can keep themselves warm, but flying is still far off: common merganser ducklings take about two months to fly.'],
   odds:    ['💔', 'Not Every Duckling Makes It', 'In the wild, few broods survive intact. For many duck species, fewer than half the ducklings in a brood live long enough to fly.'],
   line:    ['🎣', 'Discarded Fishing Line', 'Lost fishing line is almost invisible in water. Waterbirds get it wrapped around their legs and necks, sometimes fatally. Always take your line home.'],
@@ -1697,6 +1731,18 @@ function showResults() {
         ...[journeyAwards(survivors)].filter(Boolean), isBest ? 'Your best run yet!' : `Best run: ${best.home} grew up.`],
       ...fieldNotes(['fledge']), footer: '(click to play again)' });
   }
+}
+
+let crecheBest = null; try { crecheBest = JSON.parse(localStorage.getItem('duckShiftCrecheBest') || 'null'); } catch (e) {}   // { peak, dist }
+function crecheResults() {
+  S.over = true; C.pending = 'creche';
+  const peak = S.peak || 0, dist = Math.round(S.dist), isBest = !crecheBest || peak > crecheBest.peak || (peak === crecheBest.peak && dist > crecheBest.dist);
+  if (isBest) { crecheBest = { peak, dist }; try { localStorage.setItem('duckShiftCrecheBest', JSON.stringify(crecheBest)); } catch (e) {} }
+  const mm = Math.floor(S.time / 60), ss = String(Math.floor(S.time % 60)).padStart(2, '0');
+  book.show({ title: 'The Crèche Scattered', ducks: familyDoodles().slice(0, 18),
+    lines: [`Your biggest crèche: ${peak} duckling${peak === 1 ? '' : 's'}. You swam ${dist} m in ${mm}:${ss}${S.adopted ? `, and took in ${S.adopted} strays` : ''}.`,
+      isBest ? 'Your biggest crèche yet!' : `Best: ${crecheBest.peak} ducklings, ${crecheBest.dist} m.`],
+    ...fieldNotes(['creche']), footer: '(click to go again · S: back to the story)' });
 }
 
 // 急流 + 落差：一段加速、浪掀、有礁石的水面，尽头一条落差线；越过时往前栽、落水、反弹
@@ -2367,7 +2413,7 @@ function syncVisuals(realDt, simDt) {
   waterA.uniforms.uTime.value = t; waterA.uniforms.uDist.value = S.dist;
   // 天色 = 进度：正午 → 傍晚；越接近家光越暖、影子越长
   if (curStyle.key === 'A') {
-    const f = THREE.MathUtils.smoothstep(Math.min(1, S.dist / dayLen()), 0.05, 1);
+    const f = isCreche() ? 0.5 - 0.5 * Math.cos(S.time / 120) : THREE.MathUtils.smoothstep(Math.min(1, S.dist / dayLen()), 0.05, 1);   // 托儿所：天色慢慢在正午和傍晚之间来回
     scene.background.set(curStyle.bg).lerp(SUNSET.bg, f); scene.fog.color.copy(scene.background);
     sun.color.set(curStyle.sun[0]).lerp(SUNSET.sun, f); sun.intensity = curStyle.sun[1] * (1 - 0.15 * f);
     hemi.color.set(curStyle.hemi[0]).lerp(SUNSET.sky, f);
@@ -2415,14 +2461,15 @@ function syncVisuals(realDt, simDt) {
   document.getElementById('saves').textContent = S.saves;
   document.getElementById('catches').textContent = S.catches;
   document.getElementById('eaten').textContent = S.eaten;
-  const rem = Math.max(0, dayLen() - S.dist), frac = Math.min(1, S.dist / dayLen());
+  const rem = isCreche() ? 0 : Math.max(0, dayLen() - S.dist), frac = isCreche() ? 0 : Math.min(1, S.dist / dayLen());
   document.getElementById('dist').textContent = Math.ceil(rem);
   document.getElementById('best').textContent = best ? `${best.home} 只 ${'★'.repeat(best.stars)}` : '-';
   document.getElementById('progFill').style.width = (frac * 100) + '%';
   document.getElementById('progDuck').style.left = (frac * 100) + '%';
   document.getElementById('cdFill').style.width = (100 * (1 - S.quackCd / P.quackCooldown)) + '%';
 
-  if (!S.over && !S.arrived && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray')) {
+  if (!S.over && !S.arrived && S.started && onBack === 0 && ducklings.every(d => d.state === 'queued' || d.state === 'eaten' || d.state === 'stray' || d.state === 'carried')) {
+    if (isCreche()) { crecheResults(); return; }
     S.over = true; C.pending = 'retry';
     const allTaken = S.eaten === ducklings.filter(d => d.state !== 'stray').length, left = Math.ceil(dayLen() - S.dist);
     book.show({ title: `Day ${curDay().age} · Didn't Make It`, ducks: familyDoodles(),
@@ -2631,7 +2678,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>
