@@ -880,7 +880,8 @@ const mouse = { x: 0, y: 0 };
 function reset() {
   Object.assign(S, { roll: 0, rollV: 0, pitch: 0, pitchV: 0, x: 0, vx: 0, z: 0, vz: 0, ax: 0, az: 0, catches: 0, sink: 0, dist: 0, quackCd: 0, flap: 0, saves: 0,
     timeScale: 1, slowMo: 0, logTimer: 2, wakeTimer: 10, hawkTimer: 14, lurkerTimer: P.lurkerFirst, eaten: 0, over: false, queue: [], xHistory: [],
-    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0, seen: new Set(), fed: 0, display: 0, displayCd: 0, holdT: 0, stare: 0, stareCd: 0, oof: 0 });
+    rapidsTimer: P.rapidsFirst, flowMul: 1, dropT: 0, shake: 0, orphanTimer: P.orphanFirst, adopted: 0, arrived: false, arriveT: 0, resultT: 0, homeCount: 0, time: 0, seen: new Set(), fed: 0, display: 0, displayCd: 0, holdT: 0, stare: 0, stareCd: 0, oof: 0,
+    quacks: 0, drove: 0, minWarm: 1, layer: false, layerEaten0: 0, layerClean: 0 });
   endRapids(); resetDirector();
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
@@ -1009,6 +1010,7 @@ function pauseSetting(code) {
 // 依据：很多雌鸭遇到天敌时会这样「拟伤」，引开天敌让雏鸭躲起来。代价：扑腾得很凶，背上的宝宝站不稳；而且不能常用
 function startDisplay() {
   if (TUT.cur === 'hold') learn('hold');
+  if (predatorActive()) S.drove++;   // 真的引开了天敌（不是对着空气表演）
   S.display = P.displayTime; S.displayCd = P.displayCooldown; S.shakeT = 0; S.seen.add('display');
   quackSound(S.x); setTimeout(() => quackSound(S.x), 260); setTimeout(() => quackSound(S.x), 560);
   // 天敌都被吸引过来、放弃眼前的目标
@@ -1030,7 +1032,7 @@ function updateDisplay(dt) {
 
 function quack() {
   if (!S.started || S.over || S.arrived || S.quackCd > 0) return;
-  ensureAudio(); quackSound(S.x); TUT.quacked = true;
+  ensureAudio(); quackSound(S.x); TUT.quacked = true; S.quacks++;
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; bloop(330, 0.12); }   // 妈妈凶回去：别家母鸭退了
   // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
@@ -1211,7 +1213,7 @@ function sneezeBurst(d) {
   const wp = d.mesh.getWorldPosition(new THREE.Vector3());
   fx.ring(wp.x - fx0 * 0.15, wp.z + fz0 * 0.15, { r0: 0.02, r1: 0.18, life: 0.35, opacity: 0.7, y: wp.y + 0.2, drift: 0 });
 }
-function jumpOff(d) { fall(d); d.wv.multiplyScalar(0.55); S.slowMo = 0; d.mouth = 1; }   // 自己跳下去：不慢动作
+function jumpOff(d) { fall(d); d.log.falls--; d.wv.multiplyScalar(0.55); S.slowMo = 0; d.mouth = 1; }   // 自己跳下去：不慢动作
 const train = () => ducklings.filter(d => d.state === 'floating').sort((a, b) => a.fellAt - b.fellAt);
 
 function startHop(d) {
@@ -1335,6 +1337,7 @@ function step(dt) {
     }
   }
   collideDucklings();
+  if (!S.arrived) for (const d of ducklings) if (d.state === 'onBack' || d.state === 'floating') S.minWarm = Math.min(S.minWarm, d.warmth);
   // 水里的宝宝：互相推开，也不能钻进妈妈身体的轮廓里
   const sw = ducklings.filter(d => d.state === 'floating' || d.state === 'queued' || d.state === 'stray');
   for (let i = 0; i < sw.length; i++) {
@@ -1467,11 +1470,14 @@ const HINT = {
   rival: '岸边那只别家的鸭妈妈护崽很凶：靠太近她会冲过来啄。她立起来张翅时嘎！把她吓回去，或者离那边远点',
   line: '前面漂着一团钓线！缠上脚会把你往那边拽——往反方向使劲歪着蹬，就能踢掉',
 };
-const DIR = { t: 0, unlocked: [], nextBig: 0, nextSmall: 0, wasBig: false, lastBig: '', logMul: 1.6 };
+const DIR = { t: 0, unlocked: [], nextBig: 0, nextSmall: 0, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false };
+// 叠加：第 7 天起，雨/急流（环境）进行中再来一只天敌。只配能同时应对的组合（雨天往中间挤 + 嘎！护崽不冲突），从不同时来两只天敌
+const LAYER = { rain: ['hawk', 'heron', 'lurker', 'rival', 'gull'], rapids: ['hawk', 'gull'] };
+const predatorActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || HR.phase !== 'idle' || RV.phase !== 'idle' || GL.phase !== 'idle';
 function resetDirector() {   // 每天开始：已经登场过的威胁保留（跨天），今天的新威胁按当天的时间表登场
   for (let i = 0; i < Math.min(C.day, DAYS.length); i++) for (const u of DAYS[i].unlock) if (!DIR.unlocked.includes(u.ev)) DIR.unlocked.push(u.ev);   // 前几天的威胁都算见过了（哪怕那天提前到家）
   const hasBig = DIR.unlocked.some(e => BIG.includes(e)), hasSmall = DIR.unlocked.some(e => SMALL.includes(e));
-  Object.assign(DIR, { t: 0, nextBig: hasBig ? 20 : 0, nextSmall: hasSmall ? 14 : 0, wasBig: false, lastBig: '', logMul: 1.6 });
+  Object.assign(DIR, { t: 0, nextBig: hasBig ? 20 : 0, nextSmall: hasSmall ? 14 : 0, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false });
 }
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
 const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on || RN.on || HR.phase !== 'idle' || RV.phase !== 'idle';
@@ -1496,6 +1502,7 @@ function updateDirector(dt) {
   const prog = THREE.MathUtils.clamp(DIR.t / P.rampTime + C.day * 0.15, 0, 1);   // 后面几天起点更难
   const warm = DIR.t < 15;
   DIR.logMul = warm ? 1.6 : THREE.MathUtils.lerp(1.2, 0.7, prog);
+  updateLayer(dt, prog);
   const big = bigActive();
   if (DIR.wasBig && !big) DIR.nextBig = DIR.t + THREE.MathUtils.lerp(16, 6, prog) * rand(0.8, 1.2) / Math.max(0.1, P.hazardRate);   // 喘息
   DIR.wasBig = big;
@@ -1517,6 +1524,25 @@ function updateDirector(dt) {
     triggerEvent(smalls[Math.floor(Math.random() * smalls.length)], false);
     DIR.nextSmall = DIR.t + THREE.MathUtils.lerp(22, 12, prog) * rand(0.8, 1.2) / Math.max(0.1, P.hazardRate);
   }
+}
+
+function updateLayer(dt, prog) {
+  const cond = RN.on ? 'rain' : RP.on ? 'rapids' : null;
+  if (cond && !DIR.condOn) { DIR.condT = 0; DIR.layerDone = Math.random() > (C.day >= 3 ? 0.9 : C.day >= 2 ? 0.6 : 0); }   // 每段环境事件掷一次：第 7 天六成、第 12 天九成
+  DIR.condOn = !!cond;
+  if (S.layer && !cond && !predatorActive()) {   // 叠加段结束：这段里一只都没丢 = 挺过了双重危险
+    if (S.eaten === S.layerEaten0) S.layerClean++;
+    S.layer = false;
+  }
+  if (!cond) return;
+  DIR.condT += dt;
+  if (DIR.layerDone || DIR.condT < 5 || predatorActive() || prog < 0.3) return;
+  const pool = LAYER[cond].filter(e => DIR.unlocked.includes(e) && (e !== 'lurker' || P.lurkerOn));
+  DIR.layerDone = true;
+  if (!pool.length) return;
+  const ev = pool[Math.floor(Math.random() * pool.length)];
+  S.layer = true; S.layerEaten0 = S.eaten; S.seen.add('combo');
+  triggerEvent(ev, false);
 }
 
 // ---------- 终点：漂到小岛就到家 ----------
@@ -1609,6 +1635,41 @@ function fieldNotes(extra = []) {
   return { notes, count: `Field notes ${notesGot.length} / ${Object.keys(NOTES).length}` };
 }
 
+// 每天的小成就：盖在结算页上的印章，按天收集（同一个印章在不同的天各算一个）
+const BADGES = {
+  all:   ['🏡', 'All Home', 0],
+  dry:   ['☂', 'Dry Feet', 0],
+  toasty:['🧣', 'Toasty', 0],
+  quiet: ['🤫', 'Few Words', 0],
+  adopt: ['🐥', 'Bigger Family', 0],
+  buffet:['🦟', 'Bug Buffet', 2],
+  drama: ['🎭', 'Drama Queen', 1],
+  combo: ['⛈', 'Double Trouble', 2],
+};   // 第三项 = 从第几天（下标）起能拿到
+let badgesGot = []; try { badgesGot = JSON.parse(localStorage.getItem('duckShiftBadges') || '[]'); } catch (e) {}
+const badgeTotal = () => Object.values(BADGES).reduce((a, b) => a + Math.max(0, DAYS.length - b[2]), 0);
+function dayBadges(home, adoptedToday) {
+  const fam = ducklings.filter(d => d.state !== 'stray').length;
+  const earned = [];
+  if (home === fam && home > 0) earned.push('all');
+  if (ducklings.every(d => !d.log || d.log.falls === 0)) earned.push('dry');
+  if (S.minWarm >= 0.4) earned.push('toasty');
+  if (S.quacks <= 4) earned.push('quiet');
+  if (adoptedToday > 0) earned.push('adopt');
+  if (S.fed >= 12) earned.push('buffet');
+  if (S.drove > 0) earned.push('drama');
+  if (S.layerClean > 0) earned.push('combo');
+  const out = earned.filter(id => C.day >= BADGES[id][2]).map(id => {
+    const key = `${C.day}:${id}`, isNew = !badgesGot.includes(key);
+    if (isNew) badgesGot.push(key);
+    return { ic: BADGES[id][0], label: BADGES[id][1], isNew };
+  });
+  try { localStorage.setItem('duckShiftBadges', JSON.stringify(badgesGot)); } catch (e) {}
+  const RARE = ['combo', 'drama', 'all', 'toasty', 'buffet', 'dry', 'adopt', 'quiet'];   // 新拿到的排前面，其次越难拿越靠前
+  const rank = st => (st.isNew ? 0 : 100) + RARE.indexOf(Object.keys(BADGES).find(k => BADGES[k][1] === st.label));
+  return out.sort((a, b) => rank(a) - rank(b));
+}
+
 function showResults() {
   S.over = true;
   const home = S.homeCount || 0, today = curDay();
@@ -1618,11 +1679,12 @@ function showResults() {
   const stats = [`Brought home ${home} duckling${home === 1 ? '' : 's'}${adoptedToday ? ` (${adoptedToday} adopted today)` : ''}${S.fed ? `, who ate ${S.fed} bugs on the way` : ''}.`,
     `${S.eaten ? `${S.eaten} taken by predators. ` : ''}Caught at the edge ${S.saves}×, scooped from the water ${S.catches}×, time ${mm}:${ss}.`];
   const story = familyStories(); if (story) stats.push(story);
+  const stamps = dayBadges(home, adoptedToday), badgeCount = `Stamps ${badgesGot.length} / ${badgeTotal()}`;
   addToJourney();
   if (C.day < DAYS.length - 1) {
     const next = DAYS[C.day + 1];
     C.pending = 'next'; C.nextRoster = survivors;
-    book.show({ title: `Day ${today.age} · Home Safe`, ducks: familyDoodles(), lines: stats, ...fieldNotes(),
+    book.show({ title: `Day ${today.age} · Home Safe`, ducks: familyDoodles(), stamps, stampCount: badgeCount, lines: stats, ...fieldNotes(),
       next: { title: `Next · Day ${next.age}`, text: plain(next.intro) }, footer: '(click to set off)' });
   } else {
     const startN = KINDS.length, stars = home >= startN ? 3 : home >= 3 ? 2 : home >= 1 ? 1 : 0;
@@ -1630,7 +1692,7 @@ function showResults() {
     if (isBest) { best = { home, stars }; try { localStorage.setItem('duckShiftBestHome', JSON.stringify(best)); } catch (e) {} }
     C.pending = 'new';
     const adoptN = survivors.filter(k => k.adopted).length;
-    book.show({ title: "They've Grown Up!", stars, ducks: familyDoodles(),
+    book.show({ title: "They've Grown Up!", stars, ducks: familyDoodles(), stamps, stampCount: badgeCount,
       lines: [`${home} duckling${home === 1 ? '' : 's'} made it to the age where they can keep warm and feed themselves${adoptN ? `, ${adoptN} of them adopted along the way` : ''}.`,
         ...[journeyAwards(survivors)].filter(Boolean), isBest ? 'Your best run yet!' : `Best run: ${best.home} grew up.`],
       ...fieldNotes(['fledge']), footer: '(click to play again)' });
@@ -2569,7 +2631,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>

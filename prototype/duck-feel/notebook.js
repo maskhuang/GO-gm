@@ -72,6 +72,19 @@ function star(g, x, y, r, filled) {
   for (let i = 0; i < 10; i++) { const rr = i % 2 ? r * 0.45 : r, a = i / 10 * TAU - Math.PI / 2; g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
   g.closePath(); g.lineWidth = 7; g.strokeStyle = INK; g.fillStyle = filled ? '#ffd24f' : 'rgba(0,0,0,0)'; g.fill(); g.stroke(); g.restore();
 }
+// 小成就印章：红墨水的圆章，歪一点盖上去；底下写名字
+function stamp(g, x, y, { ic, label, isNew }, rot) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  g.strokeStyle = RED; g.globalAlpha = 0.9;
+  g.lineWidth = 6; g.beginPath(); g.arc(0, 0, 62, 0, TAU); g.stroke();
+  g.lineWidth = 3; g.beginPath(); g.arc(0, 0, 52, 0, TAU); g.stroke();
+  g.globalAlpha = 1; g.font = `64px ${HAND}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = INK; g.fillText(ic, 0, 4);
+  g.restore();
+  g.font = `700 36px ${HEAD}`; g.fillStyle = RED; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(label, x, y + 72);
+  if (isNew) { g.save(); g.translate(x + 56, y - 52); g.rotate(0.25); g.font = `700 30px ${HEAD}`; g.fillText('new!', 0, 0); g.restore(); }
+  g.textAlign = 'left';
+}
+
 // 贴在笔记本上的知识卡
 function noteCard(g, x, y, w, h, [ic, title, text], isNew, rot, fs = 1) {
   g.save(); g.translate(x + w / 2, y + h / 2); g.rotate(rot); g.translate(-w / 2, -h / 2);
@@ -120,8 +133,14 @@ function drawPage(g, spec, fs = 1) {   // fs = 正文字号缩放：内容太多
     g.fillText(spec.title, L, y - 14);
     if (spec.stars != null) for (let i = 0; i < 3; i++) star(g, R - 330 + i * 120, y + 50, 46, i < spec.stars);
     y += 140;
+    if (spec.stamps?.length || spec.stampCount) {   // 印章盖在涂鸦那一行的右边
+      const shown = (spec.stamps || []).slice(0, 4), n = shown.length, gap = 195, more = (spec.stamps?.length || 0) - n;   // 最多盖 4 个（调用方已按新/稀有排好）
+      shown.forEach((st, i) => stamp(g, R - 90 - (n - 1 - i) * gap, y + 62, st, ((i * 37) % 7 - 3) * 0.04));
+      if (more > 0) { g.font = `700 40px ${HEAD}`; g.fillStyle = RED; g.textAlign = 'right'; g.textBaseline = 'middle'; g.fillText(`+${more}`, R - 90 - (n - 1) * gap - 80, y + 62); g.textAlign = 'left'; }
+      if (spec.stampCount) { g.font = `34px ${HAND}`; g.fillStyle = 'rgba(43,58,74,.55)'; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText(spec.stampCount, R, y - 34); g.textAlign = 'left'; }
+    }
     if (spec.ducks?.length) {
-      const s = Math.min(1, 900 / (spec.ducks.length * 170));
+      const s = Math.min(1, (spec.stamps?.length ? Math.min(900, CW - 140 - Math.min(4, spec.stamps.length) * 195) : 900) / (spec.ducks.length * 170));
       spec.ducks.forEach((d, i) => {
         duckDoodle(g, L + 60 + i * 170 * s, y + 60, s, d.kind, d.trait);
         if (d.name) { g.font = `${Math.round(40 * Math.max(0.75, s))}px ${HAND}`; g.fillStyle = d.kind === 'lost' ? 'rgba(43,58,74,.45)' : INK; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(d.name, L + 60 + i * 170 * s + 8 * s, y + 118); g.textAlign = 'left'; }
