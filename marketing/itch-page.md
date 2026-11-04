@@ -4,7 +4,7 @@
 **Short description:** Carry your wobbly ducklings down the river on your back. Lean to balance them, quack to save them.
 **Kind:** HTML (played in the browser). **Release status:** In development.
 **Genre:** Action. **Tags:** duck, cute, animals, birds, nature, physics, casual, short, wholesome, threejs
-**Embed:** 1280 × 720, fullscreen button on, not mobile friendly.
+**Embed:** 1280 × 720, fullscreen button on, mobile friendly (landscape).
 
 ---
 
@@ -21,13 +21,15 @@ You are a mother merganser. Your ducklings hatched yesterday, and the safest way
 This is a work in progress, and I'm updating it based on your feedback. Please leave a comment about anything that felt confusing, too hard, too easy, or delightful.
 
 ### Controls
-Desktop browser with mouse and keyboard.
+Desktop browser with mouse and keyboard, or a phone or tablet held sideways.
 - **Mouse:** lean
 - **Shift:** quack (from day 3, hold it to play hurt)
 - **Space:** pause (sound and music volume are there)
 - **M:** mute
 - **E** on the title page: endless crèche mode
 - **C** on the title or pause page: credits
+
+On a touchscreen: drag one finger to lean, tap or put down a second finger to quack, and hold the second finger to play hurt. Pause, mute, credits and the crèche are buttons in the corner.
 
 ### Credits
 Music: Claude Debussy, *Children's Corner* (1908); piano performances by Michael Bednarek (CC0). Piano samples: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0). Sound effects: CC0 field recordings from Freesound (full list in the game's credits). Fonts: Caveat, Patrick Hand, Fredoka (SIL OFL). Built with three.js.

@@ -9,6 +9,14 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3e8;
     font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
   canvas { display: block; touch-action: none; }
+  html, body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* 触屏：没有键盘，角落里放几个小按钮（只在触屏上出现） */
+  #touchbar { position: fixed; right: max(10px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); display: none; gap: 8px; z-index: 5; }
+  #touchbar button { font: 600 15px "Fredoka", system-ui, sans-serif; color: #12324a; background: rgba(251,244,226,.92); border: 2px solid #2b3a4a;
+    border-radius: 22px; min-width: 44px; height: 44px; padding: 0 14px; box-shadow: 0 3px 0 rgba(0,0,0,.18); }
+  #rotate { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: #8fd3e8; color: #12324a;
+    font: 600 22px "Fredoka", system-ui, sans-serif; text-align: center; z-index: 9; padding: 24px; }
+  @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
   #hud { position: fixed; left: 12px; top: 12px; color: #12324a; background: rgba(255,255,255,.8);
     padding: 8px 12px; border-radius: 12px; font-size: 14px; line-height: 1.7; pointer-events: none; min-width: 150px; }
   #hud b { font-size: 16px; }
@@ -76,9 +84,9 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=14';
+import * as ART from './art.js?v=15';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
-import { createNotebook, createGlyph } from './notebook.js?v=10';
+import { createNotebook, createGlyph } from './notebook.js?v=11';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
 const POST_NAMES = { none: '原样', cel: '描边卡通', paint: '颜料画', riso: '孔版印刷' };
 
@@ -914,6 +922,7 @@ function reset() {
 
 // ---------- 输入 ----------
 addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch') return;   // 触屏另有一套（见下面）
   mouse.x = THREE.MathUtils.clamp((e.clientX / innerWidth) * 2 - 1, -1, 1);
   mouse.y = THREE.MathUtils.clamp(-((e.clientY / innerHeight) * 2 - 1), -1, 1);
 });
@@ -939,6 +948,65 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { if (e.key === 'Shift') S.shiftDown = false; });
 addEventListener('blur', () => { S.shiftDown = false; });
+// ---------- 触屏：一根手指拖 = 歪身子（相对按下的位置，松手慢慢回正）；点一下或者第二根手指按下 = 嘎！；第二根手指按住 = 装受伤 ----------
+const TOUCH = { on: false, lean: null, x0: 0, y0: 0, t0: 0, moved: 0, extra: new Set(), relax: false };
+const touchSpan = () => Math.min(innerWidth, innerHeight) * 0.32;   // 拖这么远 = 歪到底
+addEventListener('pointerdown', e => {
+  if (e.pointerType !== 'touch') return;
+  if (!TOUCH.on) { TOUCH.on = true; glyph.setTouch(true); updateTouchUI(); if (book.visible && menuPage() && !creditsOpen) book.refresh(menuPage()); }
+  if (book.visible || !S.started || S.over || e.target.closest?.('#touchbar')) return;
+  if (TOUCH.lean === null) {   // 第一根手指：从当前的倾斜接着拖，不跳
+    TOUCH.lean = e.pointerId; TOUCH.relax = false; TOUCH.t0 = performance.now(); TOUCH.moved = 0;
+    TOUCH.x0 = e.clientX - mouse.x * touchSpan(); TOUCH.y0 = e.clientY + mouse.y * touchSpan();
+  } else {   // 另一根手指：嘎！，按住不放 = 按住 Shift
+    TOUCH.extra.add(e.pointerId); quack(); S.holdT = 0; S.shiftDown = true;
+  }
+});
+addEventListener('pointermove', e => {
+  if (e.pointerType !== 'touch' || e.pointerId !== TOUCH.lean) return;
+  mouse.x = THREE.MathUtils.clamp((e.clientX - TOUCH.x0) / touchSpan(), -1, 1);
+  mouse.y = THREE.MathUtils.clamp(-(e.clientY - TOUCH.y0) / touchSpan(), -1, 1);
+  TOUCH.moved += Math.hypot(e.movementX || 0, e.movementY || 0);
+}, true);
+function touchUp(e) {
+  if (e.pointerType !== 'touch') return;
+  if (e.pointerId === TOUCH.lean) {
+    if (performance.now() - TOUCH.t0 < 230 && TOUCH.moved < 14) quack();   // 轻点一下 = 嘎！
+    TOUCH.lean = null; TOUCH.relax = true;
+  } else if (TOUCH.extra.delete(e.pointerId) && !TOUCH.extra.size) S.shiftDown = false;
+}
+addEventListener('pointerup', touchUp); addEventListener('pointercancel', touchUp);
+function touchFrame(dt) {   // 松手后慢慢回正（不然手指离开屏幕时鸭子一直歪着）
+  if (!TOUCH.relax) return;
+  const k = Math.min(1, dt * 3); mouse.x -= mouse.x * k; mouse.y -= mouse.y * k;
+  if (Math.abs(mouse.x) + Math.abs(mouse.y) < 0.01) { mouse.x = mouse.y = 0; TOUCH.relax = false; }
+}
+const touchbar = document.createElement('div'); touchbar.id = 'touchbar';
+const tbtn = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); ensureAudio(); fn(); }); touchbar.append(b); return b; };
+const TB = {
+  creche: tbtn('Endless crèche', () => startCreche()),
+  story: tbtn('Back to story', () => backToStory()),
+  credits: tbtn('Credits', () => toggleCredits()),
+  mute: tbtn('🔈', () => { toggleMute(); updateTouchUI(); }),
+  pause: tbtn('❚❚', () => { if (S.started && !S.over && !S.arrived && !S.paused) { S.paused = true; S.shiftDown = false; book.show(pausePage()); updateTouchUI(); } }),
+};
+document.body.append(touchbar);
+if (matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches) { TOUCH.on = true; glyph.setTouch(true); }   // 纯触屏设备：一开始就用触屏的文字和按钮
+const rotateMsg = document.createElement('div'); rotateMsg.id = 'rotate'; rotateMsg.textContent = 'Turn your phone sideways to play 🦆'; document.body.append(rotateMsg);
+let tbState = '';
+function updateTouchUI() {
+  if (!TOUCH.on) return;
+  const onTitle = !S.started && book.visible, crecheOver = S.over && C.pending === 'creche', paused = S.paused && !S.over, playing = S.started && !S.over && !S.arrived && !S.paused;
+  const st = [onTitle, crecheOver, paused, playing, creditsOpen, P.muted].join();
+  if (st === tbState) return; tbState = st;
+  touchbar.style.display = 'flex';
+  TB.creche.style.display = onTitle && !creditsOpen ? '' : 'none';
+  TB.story.style.display = crecheOver ? '' : 'none';
+  TB.credits.style.display = (onTitle || paused) && !creditsOpen ? '' : 'none';
+  TB.mute.style.display = paused || playing ? '' : 'none'; TB.mute.textContent = P.muted ? '🔇' : '🔈';
+  TB.pause.style.display = playing ? '' : 'none';
+}
+
 // 笔记本那一页：点一下 / 按 Shift、空格、回车 翻过去
 function onContinue() {
   if (!book.visible) return;
@@ -955,7 +1023,7 @@ function titlePage() {
   return { big: 'Duck Shift', sub: "A Mother Duck's First Two Weeks",
     lines: ["Your ducklings hatched yesterday. Carry them down the river until they're grown.", 'Meet Pip, who chases butterflies; Dozy, who naps anywhere; Bun, who is heavy; and the twins Tic and Tac, who squabble.',
       [best ? `Best run: ${best.home} grew up` : '', crecheBest ? `Biggest crèche: ${crecheBest.peak}` : ''].filter(Boolean).join('   ·   ')].filter(Boolean),
-    footer: '(click to begin · E: endless crèche · C: credits)' };
+    footer: TOUCH.on ? '(tap to begin)' : '(click to begin · E: endless crèche · C: credits)' };
 }
 function familyDoodles() {   // 一家子的涂鸦：到家/还在 = 黄，收养的 = 麻黄，没了 = 虚线；底下写名字，画出各自的特征
   return ducklings.filter(d => d.state !== 'stray').map(d => ({ kind: ['eaten', 'carried'].includes(d.state) ? 'lost' : d.roster?.adopted ? 'adopt' : 'home',
@@ -992,9 +1060,10 @@ function pausePage() {
   const onB = ducklings.filter(d => d.state === 'onBack').length, inW = ducklings.filter(d => ['floating', 'queued', 'falling', 'hopping'].includes(d.state)).length;
   return { title: isCreche() ? 'The Crèche · Taking a Breather' : `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
     lines: [`${isCreche() ? `${Math.round(S.dist)} m so far.` : `${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home.`} ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`,
-      `Mouse: lean to keep them balanced.   Shift: quack.${C.day >= 1 ? '   Hold Shift: play hurt.' : ''}`,
-      `Sound ${pct(P.volume)} (← →)    Music ${pct(P.musicVolume)} (↑ ↓)    M: ${P.muted ? 'sound back on' : 'mute'}    C: credits`],
-    footer: '(click or press Space to carry on)', scale: 0.85, compact: true };
+      TOUCH.on ? `Drag one finger: lean.   Tap, or put down a second finger: quack.${C.day >= 1 ? '   Hold the second finger: play hurt.' : ''}`
+        : `Mouse: lean to keep them balanced.   Shift: quack.${C.day >= 1 ? '   Hold Shift: play hurt.' : ''}`,
+      ...(TOUCH.on ? [] : [`Sound ${pct(P.volume)} (← →)    Music ${pct(P.musicVolume)} (↑ ↓)    M: ${P.muted ? 'sound back on' : 'mute'}    C: credits`])],
+    footer: TOUCH.on ? '(tap to carry on)' : '(click or press Space to carry on)', scale: 0.85, compact: true };
 }
 const pct = v => `${Math.round(v * 100)}%`;
 // 制作人员：钢琴采样是 CC BY，必须在游戏里署名；其余 CC0 / 公有领域 / 开源许可也一并列出
@@ -1005,7 +1074,7 @@ function creditsPage() {
     'Piano samples: Salamander Grand Piano V3 by Alexander Holm (CC BY 3.0).',
     'Sound effects: field recordings from Freesound by calodas, TheKingOfGeeks360, swordofkings128, Robo9418, N-RAZM, danielpodlovics, Krokulator, KoimeMatsuchiya, Q.K., hotpin7, el_boss, steaq, TRP, inspire153, _stubb, DJT4NN3R, Nox_Sound, vibe_crc, _lynks and bsumusictech (CC0). Thank you!',
     'Fonts: Caveat, Patrick Hand and Fredoka (SIL Open Font License). Built with three.js (MIT).'],
-    footer: '(click to go back)' };
+    footer: TOUCH.on ? '(tap to go back)' : '(click to go back)' };
 }
 let creditsOpen = false;
 const menuPage = () => !S.started ? titlePage() : S.paused && !S.over ? pausePage() : null;   // 只有标题页和暂停页能翻到制作人员
@@ -1742,7 +1811,7 @@ function crecheResults() {
   book.show({ title: 'The Crèche Scattered', ducks: familyDoodles().slice(0, 18),
     lines: [`Your biggest crèche: ${peak} duckling${peak === 1 ? '' : 's'}. You swam ${dist} m in ${mm}:${ss}${S.adopted ? `, and took in ${S.adopted} strays` : ''}.`,
       isBest ? 'Your biggest crèche yet!' : `Best: ${crecheBest.peak} ducklings, ${crecheBest.dist} m.`],
-    ...fieldNotes(['creche']), footer: '(click to go again · S: back to the story)' });
+    ...fieldNotes(['creche']), footer: TOUCH.on ? '(tap to go again)' : '(click to go again · S: back to the story)' });
 }
 
 // 急流 + 落差：一段加速、浪掀、有礁石的水面，尽头一条落差线；越过时往前栽、落水、反弹
@@ -2519,6 +2588,7 @@ function updateTutorial(realDt) {
 const STEP = 1 / 120;
 let acc = 0, last = performance.now();
 function frame(now) {
+  touchFrame(Math.min(0.05, (performance.now() - (frame.lt || performance.now())) / 1000)); frame.lt = performance.now(); updateTouchUI();
   requestAnimationFrame(frame);
   const realDt = Math.min(0.05, (now - last) / 1000); last = now;
   let simDt = 0;
@@ -2678,7 +2748,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, TOUCH, glyph, titlePage, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>

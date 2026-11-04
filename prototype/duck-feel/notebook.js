@@ -217,15 +217,33 @@ export function createGlyph(scene) {
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, fog: false }));
   sp.renderOrder = 40; sp.visible = false; sp.scale.set(1.6, 1.07, 1); scene.add(sp);
-  let kind = null, t = 0, prog = 0, pop = 0;
+  let kind = null, t = 0, prog = 0, pop = 0, touch = false;   // touch：触屏时画手指，不画鼠标和 Shift 键
   const NAVY = '#12324a';
   function arrow(x, y, dir) {
     g.beginPath(); g.moveTo(x, y - 26); g.lineTo(x + dir * 40, y); g.lineTo(x, y + 26); g.closePath();
     g.lineWidth = 12; g.strokeStyle = NAVY; g.stroke(); g.fillStyle = '#fff'; g.fill();
   }
+  function finger(x, y, r, fill = '#fff') { g.beginPath(); g.arc(x, y, r, 0, TAU); g.lineWidth = 12; g.strokeStyle = NAVY; g.stroke(); g.fillStyle = fill; g.fill(); }
   function draw() {
     g.clearRect(0, 0, 384, 256);
     g.lineJoin = 'round'; g.lineCap = 'round';
+    if (touch) {   // 触屏：拖动 = 一个指印左右滑；点 = 指印 + 波纹；按住 = 指印外圈填满
+      if (kind.startsWith('mouse')) {
+        const sway = kind === 'mouse' ? Math.sin(t * 3) : (kind === 'mouseL' ? -1 : 1) * (0.4 + 0.4 * Math.abs(Math.sin(t * 4)));
+        finger(192 + sway * 60, 132, 40);
+        if (kind !== 'mouseR') arrow(84, 132, -1);
+        if (kind !== 'mouseL') arrow(300, 132, 1);
+      } else if (kind === 'shift') {
+        const p2 = (t * 1.6) % 1; finger(192, 128, 40 - 6 * Math.max(0, Math.sin(t * 10)));
+        g.lineWidth = 9; g.strokeStyle = `rgba(18,50,74,${1 - p2})`; g.beginPath(); g.arc(192, 128, 52 + p2 * 50, 0, TAU); g.stroke();
+      } else {
+        finger(192, 128, 40);
+        g.lineWidth = 26; g.strokeStyle = NAVY; g.beginPath(); g.arc(192, 128, 92, 0, TAU); g.stroke();
+        g.lineWidth = 14; g.strokeStyle = '#fff'; g.beginPath(); g.arc(192, 128, 92, 0, TAU); g.stroke();
+        g.strokeStyle = '#f2a33a'; g.beginPath(); g.arc(192, 128, 92, -Math.PI / 2, -Math.PI / 2 + TAU * prog); g.stroke();
+      }
+      tex.needsUpdate = true; return;
+    }
     if (kind.startsWith('mouse')) {
       const sway = kind === 'mouse' ? Math.sin(t * 3) * 0.35 : (kind === 'mouseL' ? -1 : 1) * (0.2 + 0.2 * Math.abs(Math.sin(t * 4)));
       g.save(); g.translate(192, 132); g.rotate(sway);
@@ -258,6 +276,7 @@ export function createGlyph(scene) {
     show(k) { if (kind !== k) { kind = k; t = 0; pop = 0; } sp.visible = true; },
     hide() { kind = null; sp.visible = false; },
     progress(p) { prog = p; },
+    setTouch(v) { touch = v; },
     update(dt, pos) {
       if (!kind) return;
       t += dt; pop = Math.min(1, pop + dt * 5);
