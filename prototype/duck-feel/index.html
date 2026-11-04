@@ -84,7 +84,7 @@
 <script type="module">
 import * as THREE from 'three';
 import GUI from 'lil-gui';
-import * as ART from './art.js?v=15';
+import * as ART from './art.js?v=16';
 import { createStylize, POST_MODES } from './stylize.js?v=4';
 import { createNotebook, createGlyph } from './notebook.js?v=11';
 const DEV = /dev/.test(location.search);   // ?dev：显示调参面板、开发快捷键
@@ -155,7 +155,10 @@ const DEFAULTS = {
   heronReach: 1.5,       // 苍鹭：站在岸边能叼到多远
   heronWarn: 0.9,        // 苍鹭：缩脖子到出击的预警（秒）
   gullWarn: 0.75,        // 海鸥：开始俯冲到抓的时间（秒）
-  gullDodge: 0.35,       // 海鸥：抓的那一刻目标偏离瞄准点多远就扑空
+  gullDodge: 0.35,
+  minkSpeed: 2.3,        // 水貂：水里追宝宝的速度
+  minkWarn: 0.55,        // 水貂：扑之前一顿的预警（秒）
+  minkScare: 2.2,        // 水貂：离妈妈多近时嘎！能把它赶走       // 海鸥：抓的那一刻目标偏离瞄准点多远就扑空
   lineDrag: 9,           // 钓线缠脚：把妈妈往缠住那边拽的力度
   lineFree: 1.4,         // 往反方向蹬（鼠标推到另一边）多久能把线踢掉（秒）
   rivalRange: 2.5,       // 别家母鸭：离她多近就会发火
@@ -575,8 +578,8 @@ function pianoNote(t, midi, vel = 0.5, dur = 1, dest) {   // dest 默认走音�
 }
 const MUS = { score: null, piece: -1, st: 0, at: 0, playing: false, gap: 2, int: 0, idx: 0, gain: null, was: { arrived: false, failed: false } };
 function musicTarget() {
-  if (hawkState.phase === 'dive' || HR.phase === 'cock' || HR.phase === 'strike' || L.phase === 'windup' || GL.phase === 'swoop') return 1;
-  if (RP.on || RV.phase === 'warn' || RV.phase === 'charge' || hawkState.phase === 'circle' || L.phase === 'hunt' || FL.phase === 'snag') return 0.6;
+  if (hawkState.phase === 'dive' || HR.phase === 'cock' || HR.phase === 'strike' || L.phase === 'windup' || GL.phase === 'swoop' || MK.phase === 'lunge') return 1;
+  if (MK.phase === 'swim' || MK.phase === 'run' || RP.on || RV.phase === 'warn' || RV.phase === 'charge' || hawkState.phase === 'circle' || L.phase === 'hunt' || FL.phase === 'snag') return 0.6;
   if (ducklings.some(d => d.state === 'onBack' && d.teeter > 0)) return 0.35;
   if (ducklings.some(d => d.state === 'floating' || d.state === 'falling')) return 0.3;
   return 0;
@@ -690,6 +693,7 @@ function updateFeathers(dt, flow) {
     if (f.z > 12) f.m.visible = false;
   }
 }
+const mink = ART.buildMink(toon); mink.scale.setScalar(2.4); mink.visible = false; scene.add(mink);   // 和 60 厘米的秋沙鸭比：水貂连尾巴约 70 厘米
 const heronWeed = ART.buildWeed(toon); heronWeed.visible = false; heron.userData.head.add(heronWeed); heronWeed.position.set(0, -0.02, -0.33);
 const book = createNotebook(scene, camera);   // 标题/结算/暂停：镜头前的一页笔记本
 const glyph = createGlyph(scene);             // 教学图标
@@ -909,6 +913,7 @@ function reset() {
   Object.assign(L, { phase: 'idle', target: null }); lurker.visible = false; targetRing.visible = false;
   for (const l of logs) l.g.removeFromParent(); logs.length = 0;
   for (const f of feathers) f.m.visible = false; HR.weed = 0; heronWeed.visible = false;
+  Object.assign(MK, { phase: 'idle', target: null }); mink.visible = false;
   wake.active = false; kayak.visible = false; hawkState.phase = 'idle'; hawkState.target = null; hawk.visible = false; hawkRing.visible = false; hawkShadow.material.opacity = 0; S.cover = 0;
   Object.assign(RN, { on: false, k: 0 }); rainGain(0);
   Object.assign(HR, { phase: 'idle', target: null }); heron.visible = heronShadow.visible = false;
@@ -1106,6 +1111,7 @@ function startDisplay() {
   if (GL.phase === 'call' || GL.phase === 'swoop') { GL.phase = 'leave'; GL.t = 0; GL.target = null; }
   if (L.phase === 'hunt' || L.phase === 'windup') { L.phase = 'leave'; L.timer = 1; }
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; }
+  minkScare();
 }
 function updateDisplay(dt) {
   S.display -= dt; S.shakeT = (S.shakeT || 0) - dt;
@@ -1122,6 +1128,7 @@ function quack() {
   ensureAudio(); quackSound(S.x); TUT.quacked = true; S.quacks++;
   S.quackCd = P.quackCooldown; S.flap = 0.5; S.sink = 0.6;
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; bloop(330, 0.12); }   // 妈妈凶回去：别家母鸭退了
+  if (Math.hypot(MK.x - S.x, MK.z - S.z) < P.minkScare) minkScare();   // 水貂冲到跟前：妈妈扑过去
   // 护崽：背上的缩成团、水里的潜下去（真实的母鸭报警时雏鸭就是这么躲的）
   S.cover = P.coverTime;
   for (const d of ducklings) if (d.state === 'floating' || d.state === 'queued') fx.ring(d.wp.x, d.wp.z, { r0: 0.05, r1: 0.35, life: 0.5, opacity: 0.6 });
@@ -1495,6 +1502,7 @@ function updateWorld(dt) {
   updateHatch(dt, flow);
 
   updateLurker(dt);
+  updateMink(dt, flow);
   updateFeathers(dt, flow);
 
   // 蝴蝶（好奇鬼的目标）
@@ -1522,8 +1530,8 @@ const DAYS = [
     intro: 'Three days old now: a little faster, a little hardier.<br>Today the river has rapids and a drop, and the sky is clouding over. It may rain.' },
   { age: 7, g: 0.66, len: 1.05, unlock: [{ at: 24, ev: 'hawk' }, { at: 40, ev: 'hatch' }, { at: 58, ev: 'heron' }],
     intro: 'A week old, and they can dive: when a hawk swoops, the ones in the water hide on their own.<br>They are heavier, your back is getting crowded, and some want to swim by themselves.<br>Herons stand in the shallows along this stretch, and mayflies swarm in the evening.' },
-  { age: 12, g: 1, len: 1.2, unlock: [{ at: 16, ev: 'gull' }, { at: 40, ev: 'rival' }],
-    intro: 'Twelve days old. They swim on their own most of the time; you are leading more than carrying.<br>Last leg: down to the big lake, with its gulls and other duck families.' },
+  { age: 12, g: 1, len: 1.2, unlock: [{ at: 16, ev: 'gull' }, { at: 40, ev: 'rival' }, { at: 64, ev: 'mink' }],
+    intro: 'Twelve days old. They swim on their own most of the time; you are leading more than carrying.<br>Last leg: down to the big lake, with its gulls and other duck families. Watch the banks for mink.' },
 ];
 const C = { day: 0, roster: [], startRoster: [], nextRoster: null, pending: null };   // roster：家里有哪些宝宝（跨天保留）
 // 托儿所（无尽模式）：真实的秋沙鸭会把几窝雏鸭合成一大群，由一只母鸭带着。没有终点，一路收留走散的宝宝，看能带多大一群
@@ -1553,7 +1561,7 @@ function proceed() {   // 结算画面点一下：下一天 / 重来这一天 / 
 // ---------- 节奏编排（导演） ----------
 // 热身只有木头 → 按顺序逐个登场（第一次出现给一句怎么应对）→ 之后随机调度：
 // 大威胁（水下阴影/急流/鹰）同时只来一个、结束后有喘息；小事件（皮划艇/迷路宝宝）只在平静时来；间隔随时间缩短
-const BIG = ['lurker', 'rapids', 'hawk', 'rain', 'heron', 'rival'], SMALL = ['kayak', 'orphan', 'gull', 'line', 'hatch'];
+const BIG = ['lurker', 'rapids', 'hawk', 'rain', 'heron', 'rival', 'mink'], SMALL = ['kayak', 'orphan', 'gull', 'line', 'hatch'];
 const HINT = {
   kayak: '皮划艇过来了：它的尾浪会把你晃一下，稳住重心',
   orphan: '有只迷路的宝宝！游到它旁边，它就会跟上来，再嘎！接它上背',
@@ -1565,12 +1573,13 @@ const HINT = {
   gull: '海鸥从侧面扑下来了！往另一边歪一下让宝宝滑开，或者嘎！让它们缩起来',
   hatch: '前面有一团蜉蝣！水里的宝宝游进去能饱餐一顿、暖起来；背上的会兴奋地挤到边上去啄——小心别掉下去',
   rival: '岸边那只别家的鸭妈妈护崽很凶：靠太近她会冲过来啄。她立起来张翅时嘎！把她吓回去，或者离那边远点',
+  mink: '岸上有只水貂！它会下水追水里的宝宝：先把宝宝捞上背；它冲到跟前时嘎！把它赶走',
   line: '前面漂着一团钓线！缠上脚会把你往那边拽——往反方向使劲歪着蹬，就能踢掉',
 };
 const DIR = { t: 0, unlocked: [], nextBig: 0, nextSmall: 0, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false };
 // 叠加：第 7 天起，雨/急流（环境）进行中再来一只天敌。只配能同时应对的组合（雨天往中间挤 + 嘎！护崽不冲突），从不同时来两只天敌
-const LAYER = { rain: ['hawk', 'heron', 'lurker', 'rival', 'gull'], rapids: ['hawk', 'gull'] };
-const predatorActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || HR.phase !== 'idle' || RV.phase !== 'idle' || GL.phase !== 'idle';
+const LAYER = { rain: ['hawk', 'heron', 'lurker', 'rival', 'gull', 'mink'], rapids: ['hawk', 'gull'] };
+const predatorActive = () => MK.phase !== 'idle' || L.phase !== 'idle' || hawkState.phase !== 'idle' || HR.phase !== 'idle' || RV.phase !== 'idle' || GL.phase !== 'idle';
 function resetDirector() {   // 每天开始：已经登场过的威胁保留（跨天），今天的新威胁按当天的时间表登场
   for (let i = 0; i < Math.min(C.day, DAYS.length); i++) for (const u of DAYS[i].unlock) if (!DIR.unlocked.includes(u.ev)) DIR.unlocked.push(u.ev);   // 前几天的威胁都算见过了（哪怕那天提前到家）
   const hasBig = DIR.unlocked.some(e => BIG.includes(e)), hasSmall = DIR.unlocked.some(e => SMALL.includes(e));
@@ -1578,7 +1587,7 @@ function resetDirector() {   // 每天开始：已经登场过的威胁保留（
   Object.assign(DIR, { t: 0, nextBig: hasBig ? 20 : 0, nextSmall: hasSmall ? 14 : 0, wasBig: false, lastBig: '', logMul: 1.6, condOn: false, condT: 0, layerDone: false });
 }
 function spawnKayak() { wake.active = true; wake.t = 0; wake.side = Math.random() < 0.5 ? -1 : 1; kayak.visible = true; }
-const bigActive = () => L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on || RN.on || HR.phase !== 'idle' || RV.phase !== 'idle';
+const bigActive = () => MK.phase !== 'idle' || L.phase !== 'idle' || hawkState.phase !== 'idle' || RP.on || RN.on || HR.phase !== 'idle' || RV.phase !== 'idle';
 function triggerEvent(ev, first) {
   S.seen.add(ev);
   const hintMsg = first ? HINT[ev] : null, ms = 4200;
@@ -1592,6 +1601,7 @@ function triggerEvent(ev, first) {
   else if (ev === 'hatch') { spawnHatch(); if (hintMsg) hint(hintMsg, ms); }
   else if (ev === 'rival') { spawnRival(); if (hintMsg) hint(hintMsg, ms); }
   else if (ev === 'line') { spawnLine(); if (hintMsg) hint(hintMsg, ms); }
+  else if (ev === 'mink') { spawnMink(); if (hintMsg) hint(hintMsg, ms); }
   else if (ev === 'gull') { if (spawnGull() && hintMsg) hint(hintMsg, ms); }
 }
 function updateDirector(dt) {
@@ -1672,6 +1682,7 @@ function arrive() {
   if (RV.phase === 'warn' || RV.phase === 'charge') { RV.phase = 'retreat'; RV.t = 0; }
   if (HR.phase === 'cock') { HR.phase = 'recover'; HR.t = 0; HR.target = null; }
   if (GL.phase === 'call' || GL.phase === 'swoop') { GL.phase = 'leave'; GL.t = 0; GL.target = null; }
+  if (MK.phase === 'swim' || MK.phase === 'lunge' || MK.phase === 'run') { MK.phase = 'leave'; MK.t = 0; MK.target = null; }
   quackSound(S.x); S.flap = 0.5;
   const fam = ducklings.filter(d => ['onBack', 'floating', 'queued', 'hopping', 'falling'].includes(d.state));
   fam.forEach((d, i) => { d.homeDelay = 0.8 + i * 0.35; d.homeIdx = i; d.homeN = fam.length; });
@@ -1718,6 +1729,7 @@ const NOTES = {
   kayak:   ['🛶', 'Give Them Space', 'Boats and people that come too close can scatter a brood, and a separated duckling may never find its mother again. If you see a duck family, take the long way round.'],
   dive:    ['🤿', 'Diving at One Week', 'Merganser ducklings dive within days of hatching, catching insects underwater. Diving is also how they escape danger.'],
   sawbill: ['🐟', 'Saw-Toothed Bill', "A merganser's bill is long and thin, lined with backward-pointing serrations that grip slippery fish. Hence the nickname \"sawbill\"."],
+  mink:    ['🦦', 'Mink on the Bank', 'American mink hunt along riverbanks and swim well, and they do take ducklings. A mother duck will often rush at a small predator, splashing and calling, to drive it off.'],
   creche:  ['👪', 'Crèches', 'Common merganser broods often merge into a crèche, sometimes dozens of ducklings strong, looked after by one or a few females. Strays that lose their own mother can join in.'],
   fledge:  ['🪽', 'Not Flying Yet', 'After two weeks the ducklings can keep themselves warm, but flying is still far off: common merganser ducklings take about two months to fly.'],
   odds:    ['💔', 'Not Every Duckling Makes It', 'In the wild, few broods survive intact. For many duck species, fewer than half the ducklings in a brood live long enough to fly.'],
@@ -2119,6 +2131,75 @@ function updateRival(dt, flow) {
 // ---------- 苍鹭：站在岸边浅水里（跟着河岸漂过来），离岸太近的宝宝会被叼走 ----------
 // 依据：苍鹭在浅水岸边伏击，雏鸭是常见猎物；它出击前会把脖子缩成 S 形。应对：离那边的岸远一点
 const HR = { phase: 'idle', x: 0, z: 0, side: 1, t: 0, target: null, cd: 0, yaw: 0, len: 1, pitch: 0.15, tp: new THREE.Vector3(), splash: 0 };
+// ---------- 水貂：沿着岸边一蹿一蹿地跑过来，溜下水，追水里的宝宝；冲到妈妈跟前时嘎！妈妈会扑过去把它赶走 ----------
+// 依据：美洲水貂沿河岸捕猎、水性好，会抓雏鸭；母鸭遇到小型天敌常常主动冲上去扑打、溅水把它赶跑
+const MK = { phase: 'idle', x: 0, z: 0, side: 1, t: 0, target: null, yaw: 0, k: 0, wakeT: 0 };
+const WATER_PREY = ['floating', 'queued', 'stray'];
+function spawnMink() {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  Object.assign(MK, { phase: 'run', side, x: side * (RIVER_HALF - 0.4), z: S.z - 13, t: 0, target: null, yaw: 0, k: 0 });
+  mink.visible = true;
+}
+function minkScare() {   // 妈妈扑过去：水貂吓一跳、掉头游回岸上
+  if (MK.phase !== 'swim' && MK.phase !== 'lunge') return false;
+  MK.phase = 'flee'; MK.t = 0; MK.target = null; hissSound(MK.x); splash(new THREE.Vector3(MK.x, 0, MK.z), 10, 0.6);
+  deadpan(1);
+  return true;
+}
+function updateMink(dt, flow) {
+  if (MK.phase === 'idle') return;
+  MK.t += dt;
+  const moveTo = (tx, tz, sp) => { const dx = tx - MK.x, dz = tz - MK.z, l = Math.hypot(dx, dz); if (l > 1e-3) { const st = Math.min(l, sp * dt); MK.x += dx / l * st; MK.z += dz / l * st; MK.yaw = Math.atan2(-dx, -dz); } return l; };
+  let swim = true;
+  if (MK.phase === 'run') {   // 岸上：顺着岸往妈妈那边蹿，到了旁边就溜下水
+    swim = false; MK.k += dt * 16;
+    moveTo(MK.side * (RIVER_HALF - 0.4), S.z - 1.5, 3.2);
+    MK.z += flow * dt * 0.3;
+    if (MK.z > S.z - 2.5 || S.arrived) {
+      if (S.arrived) { MK.phase = 'leave'; MK.t = 0; }
+      else { MK.phase = 'swim'; MK.t = 0; MK.x = MK.side * (RIVER_HALF - 1.0); splash(new THREE.Vector3(MK.x, 0, MK.z), 14, 0.7); splashSound(MK.x, 0.6); }
+    }
+  } else if (MK.phase === 'swim') {   // 水里：盯住最近的水里的宝宝追；一直没有就在妈妈附近转一会儿再走（和宝宝一样在妈妈的参照系里游，不随水漂）
+    if (!MK.target || !WATER_PREY.includes(MK.target.state)) {
+      let best = null, bd = 99;
+      for (const d of ducklings) if (WATER_PREY.includes(d.state)) { const dd = Math.hypot(d.wp.x - MK.x, d.wp.z - MK.z); if (dd < bd) { bd = dd; best = d; } }
+      MK.target = best;
+    }
+    if (MK.target) {
+      const l = moveTo(MK.target.wp.x, MK.target.wp.z, P.minkSpeed);
+      if (l < 0.9) { MK.phase = 'lunge'; MK.t = 0; peep(3200, 0.18, MK.target.wp.x); }
+    } else {
+      const a = MK.t * 1.4 * MK.side;
+      moveTo(S.x + Math.cos(a) * 2.2, S.z + Math.sin(a) * 1.8, P.minkSpeed * 0.6);
+      if (MK.t > 6) { MK.phase = 'leave'; MK.t = 0; }
+    }
+    if (MK.t > 14) { MK.phase = 'leave'; MK.t = 0; }
+  } else if (MK.phase === 'lunge') {   // 扑之前一顿：抬头、弓背（预警），然后扑
+    const d = MK.target;
+    if (!d || !WATER_PREY.includes(d.state)) { MK.phase = 'swim'; MK.t = 0; MK.target = null; }
+    else if (MK.t >= P.minkWarn) {
+      if (Math.hypot(d.wp.x - MK.x, d.wp.z - MK.z) < 1.15) {
+        d.state = 'carried'; d.teeter = 0; S.eaten++; peep(3400, 0.25, d.wp.x); splashSound(d.wp.x);
+        if (P.slowMoOnFall) S.slowMo = 0.5;
+        MK.phase = 'carry'; MK.t = 0;
+      } else { MK.phase = 'swim'; MK.t = 0; }
+    }
+  } else {   // carry / flee / leave：游回最近的岸，上岸跑走
+    const bankX = Math.sign(MK.x || MK.side) * (RIVER_HALF - 0.35);
+    const onBank = Math.abs(MK.x) > RIVER_HALF - 0.45;
+    swim = !onBank; if (onBank) MK.k += dt * 16;
+    if (onBank) MK.z += flow * dt * 0.3;
+    if (!onBank) moveTo(bankX, MK.z - 0.6, MK.phase === 'flee' ? P.minkSpeed * 1.3 : P.minkSpeed * 0.9);
+    else { MK.z -= 3.4 * dt; MK.yaw = 0; MK.x = bankX; }
+    if (MK.phase === 'carry' && MK.target) MK.target.wp.set(MK.x - Math.sin(MK.yaw) * 0.3, swim ? 0.05 : 0.18, MK.z - Math.cos(MK.yaw) * 0.3);
+    if (onBank && MK.target && MK.phase === 'carry') { MK.target.state = 'eaten'; MK.target.mesh.visible = false; MK.target.wp.y = -1; MK.target = null; }
+    if (MK.t > 5 || MK.z < S.z - 16) { MK.phase = 'idle'; mink.visible = false; return; }
+  }
+  mink.position.set(MK.x, swim ? -0.07 : 0.0, MK.z); mink.rotation.y = MK.yaw;
+  mink.setPose(MK.k, swim);
+  if (MK.phase === 'lunge') { mink.userData.head.position.y += Math.min(1, MK.t / P.minkWarn) * 0.08; mink.rotation.x = -0.15 * Math.min(1, MK.t / P.minkWarn); } else mink.rotation.x = 0;
+  if (swim) { MK.wakeT -= dt; if (MK.wakeT <= 0) { MK.wakeT = 0.12; fx.ring(MK.x, MK.z + 0.15, { r0: 0.05, r1: 0.35, life: 0.8, opacity: 0.5, sz: 0.7 }); } }   // 水面上拖出一道 V 字
+}
 const preyPos = (d, out) => (d.state === 'onBack' || d.state === 'hopping') ? d.mesh.getWorldPosition(out) : out.copy(d.wp);
 const PREY = ['onBack', 'floating', 'queued', 'hopping'];
 function spawnHeron() {
@@ -2345,7 +2426,7 @@ function syncVisuals(realDt, simDt) {
   const q = S.flap > 0 ? Math.sin(Math.min(1, (0.5 - S.flap) / 0.12) * Math.PI / 2) * Math.min(1, S.flap / 0.15) : 0;
   // 回头看宝宝：有宝宝扒边/落水就扭头盯着它（鸟脖子能转 180°），平时也隔一阵回头瞄一眼——这样玩家才看得到她的脸
   let look = null;
-  const threatened = hawkState.phase === 'dive' ? hawkState.target : L.phase === 'windup' ? L.target : HR.phase === 'cock' ? HR.target : GL.phase === 'swoop' ? GL.target : null;   // 鹰/水下黑影盯上的宝宝：妈妈先盯着它
+  const threatened = hawkState.phase === 'dive' ? hawkState.target : L.phase === 'windup' ? L.target : HR.phase === 'cock' ? HR.target : GL.phase === 'swoop' ? GL.target : MK.phase === 'lunge' ? MK.target : null;   // 鹰/水下黑影盯上的宝宝：妈妈先盯着它
   if (threatened) look = threatened.state === 'onBack' ? threatened.mesh.position : duck.worldToLocal(tmpV.copy(threatened.wp));
   else if (FL.phase === 'snag') look = duck.worldToLocal(tmpV.set(FL.x, 0, FL.z));   // 回头瞅缠住脚的线
   if (!look) for (const d of ducklings) {
@@ -2562,6 +2643,7 @@ function updateTutorial(realDt) {
     !taught.kick && FL.phase === 'snag' ? 'kick' :                                  // 第一次被钓线缠住：往另一边蹬
     !taught.cover && hawkState.phase === 'dive' ? 'cover' :                         // 第一次鹰俯冲：嘎！护崽
     !taught.hold && C.day >= 1 && S.displayCd <= 0 && (L.phase === 'windup' || HR.phase === 'cock' || RV.phase === 'warn') ? 'hold' :   // 嘎！管不了的危险：按住装受伤
+    !taught.scare && (MK.phase === 'swim' || MK.phase === 'lunge') && Math.hypot(MK.x - S.x, MK.z - S.z) < P.minkScare ? 'scare' :   // 水貂冲到跟前：嘎！赶走
     !taught.call && ducklings.some(d => d.state === 'floating') ? 'call' : null;    // 第一次有宝宝落水：嘎！叫它回来
   if (want !== TUT.cur) { TUT.cur = want; TUT.t = 0; TUT.quacked = false; TUT.slow = false; if (!want) { glyph.hide(); return; } }
   if (!want) return;
@@ -2574,7 +2656,7 @@ function updateTutorial(realDt) {
   } else if (want === 'kick') {
     glyph.show(FL.side > 0 ? 'mouseL' : 'mouseR');
     TUT.pos.set(S.x - FL.side * 1.6, 1.0, S.z - 0.2);
-  } else if (want === 'cover' || want === 'call') {
+  } else if (want === 'cover' || want === 'call' || want === 'scare') {
     glyph.show('shift'); TUT.slow = want === 'cover' && TUT.t < 4;
     if (TUT.quacked) learn(want);
   } else if (want === 'hold') {
@@ -2748,7 +2830,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, TOUCH, glyph, titlePage, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, MK, spawnMink, TOUCH, glyph, titlePage, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>

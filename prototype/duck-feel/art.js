@@ -322,6 +322,35 @@ export function animateDuckling(inner, t, st) {
   inner.scale.set(s0 * sxz, s0 * sy, s0 * sxz);
 }
 
+// 水貂：细长的深棕身子、白下巴、短腿、长尾巴。userData.setPose(k, swim)：k = 奔跑的起伏相位；swim = 在水里（只露头和背）
+export function buildMink(toon) {
+  const g = new THREE.Group(), fur = toon(0x4a3326), dark = toon(0x2e1f17);
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.075, 0.34, 6, 12), fur); body.rotation.x = Math.PI / 2; body.position.y = 0.11; g.add(body);
+  const head = new THREE.Group(); head.position.set(0, 0.13, -0.27); g.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 10), fur); skull.scale.set(1, 0.85, 1.25); head.add(skull);
+  const chin = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6), toon(0xf4efe4)); chin.position.set(0, -0.035, -0.06); head.add(chin);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 4), dark); nose.position.set(0, 0.0, -0.09); head.add(nose);
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.SphereGeometry(0.02, 6, 4), dark); ear.position.set(s * 0.045, 0.05, 0.02); head.add(ear);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.012, 6, 4), toon(0x111111)); eye.position.set(s * 0.035, 0.02, -0.06); head.add(eye);
+  }
+  const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.03, 0.22, 4, 8), dark); tail.rotation.x = Math.PI / 2 + 0.25; tail.position.set(0, 0.09, 0.33); g.add(tail);
+  const legs = [];
+  for (const [x, z] of [[-0.05, -0.15], [0.05, -0.15], [-0.05, 0.15], [0.05, 0.15]]) {
+    const l = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.08, 5), dark); l.position.set(x, 0.04, z); g.add(l); legs.push(l);
+  }
+  g.userData.setPose = (k, swim) => {
+    const arch = Math.sin(k);
+    body.position.y = swim ? 0.02 : 0.11 + Math.abs(arch) * 0.04; body.rotation.z = 0;
+    head.position.y = swim ? 0.06 : 0.13 + Math.max(0, arch) * 0.05;
+    tail.position.y = swim ? 0.0 : 0.09; tail.rotation.x = Math.PI / 2 + (swim ? 0 : 0.25 + arch * 0.2);
+    legs.forEach((l, i) => { l.visible = !swim; l.rotation.x = (i < 2 ? 1 : -1) * arch * 0.7; });
+  };
+  g.userData.head = head;
+  g.setPose = g.userData.setPose;
+  return g;
+}
+
 // 一根羽毛：扁扁的叶子形 + 一根羽轴；颜色由调用方改（鹰 = 棕，海鸥 = 白）
 export function buildFeather(toon) {
   const g = new THREE.Group();
