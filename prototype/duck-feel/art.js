@@ -351,6 +351,37 @@ export function buildMink(toon) {
   return g;
 }
 
+// 村口的石拱小桥：桥面横跨整条河，拱从岸到岸，一只猫蹲在栏杆上看鸭子。
+// 返回 { group, shade, setOpacity(o) }；桥离镜头太近会挡住鸭子，调用方会把它调成半透明
+export function buildBridge(toon, half) {
+  const g = new THREE.Group(), mats = [];
+  const M = c => { const m = toon(c); m.transparent = true; mats.push(m); return m; };
+  const stone = M(0xd9cbb0), dark = M(0xbfae90), cat = M(0x3b3b44);
+  const W = half * 2 + 9, H = 2.3, D = 2.0;   // 矮矮的人行小桥：刚好让鸭妈妈的头过去（太高会一直在画面外）
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(W, 0.5, D), stone); deck.position.y = H; g.add(deck);
+  const arch = new THREE.Mesh(new THREE.TorusGeometry(half + 0.4, 0.45, 10, 40, Math.PI), dark);   // 半个圆环 = 拱
+  arch.scale.set(1, (H - 0.3) / (half + 0.4), D / 0.9); g.add(arch);
+  for (const s of [-1, 1]) {
+    const pier = new THREE.Mesh(new THREE.BoxGeometry(2.4, H, D * 0.98), stone); pier.position.set(s * (half + 1.6), H / 2, 0); g.add(pier);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, 0.22), dark); rail.position.set(0, H + 0.45, s * (D / 2 - 0.11)); g.add(rail);
+    for (let i = -5; i <= 5; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.75, 0.28), stone); p.position.set(i * W / 11, H + 0.4, s * (D / 2 - 0.11)); g.add(p); }
+  }
+  // 猫：蹲在下游一侧的栏杆上，盯着水面
+  const c = new THREE.Group(); c.position.set(1.4, H + 0.65, D / 2 - 0.11); g.add(c);
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), cat); body.scale.set(0.8, 1, 0.9); body.position.y = 0.3; c.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), cat); head.position.set(0, 0.72, 0.08); c.add(head);
+  for (const s of [-1, 1]) { const ear = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 4), cat); ear.position.set(s * 0.12, 0.92, 0.06); ear.rotation.z = -s * 0.25; c.add(ear);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 4), M(0xf2d24a)); eye.position.set(s * 0.08, 0.75, 0.27); c.add(eye); }
+  const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.6, 4, 6), cat); tail.position.set(0.15, -0.05, 0.12); tail.rotation.z = 0.2; c.add(tail);
+  g.userData.cat = c; g.userData.catTail = tail;
+  // 桥下水面的一条阴影
+  const shade = new THREE.Mesh(new THREE.PlaneGeometry(half * 2, D + 0.6), new THREE.MeshBasicMaterial({ color: 0x0b2233, transparent: true, opacity: 0.16, depthWrite: false }));
+  shade.rotation.x = -Math.PI / 2; shade.position.y = 0.025; g.add(shade);
+  g.traverse(o => { if (o.isMesh) o.userData.skip = true; });   // 不让画风切换换掉材质：桥要单独调透明度
+  g.visible = false;
+  return { group: g, setOpacity(o) { for (const m of mats) { m.opacity = o; m.depthWrite = o > 0.95; } } };
+}
+
 // 一根羽毛：扁扁的叶子形 + 一根羽轴；颜色由调用方改（鹰 = 棕，海鸥 = 白）
 export function buildFeather(toon) {
   const g = new THREE.Group();
