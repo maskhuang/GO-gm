@@ -312,9 +312,33 @@ export function animateDuckling(inner, t, st) {
     inner.position.x = Math.sin(t * 70 + ph) * 0.012 * c;
     head.rotation.z += Math.sin(t * 55 + ph) * 0.08 * c;
   } else inner.position.x = 0;
+  if (st.sneeze > 0) {   // 打喷嚏：先仰头吸气（眯眼），「啾」地往前一点头
+    const k2 = st.sneeze;   // 0.45 → 0
+    if (k2 > 0.12) { const w = (0.45 - k2) / 0.33; head.rotation.x = -0.5 * w; for (const e of eyes) e.scale.y = es * (1 - 0.8 * w); sy += 0.08 * w * k; }
+    else { const w = k2 / 0.12; head.rotation.x = 0.6 * w; for (const e of eyes) e.scale.y = es * 0.1; sy -= 0.12 * w * k; }
+  }
   if (st.crouch) { sy *= 0.62; head.position.y = 0.21; for (const e of eyes) e.scale.y = 0.12; }   // 缩成一团、紧闭眼睛
   const sxz = 1 / Math.sqrt(Math.max(0.4, sy));
   inner.scale.set(s0 * sxz, s0 * sy, s0 * sxz);
+}
+
+// 一根羽毛：扁扁的叶子形 + 一根羽轴；颜色由调用方改（鹰 = 棕，海鸥 = 白）
+export function buildFeather(toon) {
+  const g = new THREE.Group();
+  const vane = new THREE.Mesh(new THREE.SphereGeometry(1, 10, 6), toon(0x7a6450)); vane.scale.set(0.035, 0.008, 0.11); vane.material = vane.material.clone();
+  const quill = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 4), toon(0xf4efe4)); quill.rotation.x = Math.PI / 2; quill.position.z = 0.13;
+  g.add(vane, quill); g.visible = false;
+  return g;
+}
+// 苍鹭扑空叼上来的一嘴水草：几根绿条从嘴尖耷拉下来
+export function buildWeed(toon) {
+  const g = new THREE.Group(), mat = toon(0x5f9a4a);
+  for (let i = 0; i < 3; i++) {
+    const len = 0.16 + i * 0.05;
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, len, 4), mat);
+    s.geometry.translate(0, -len / 2, 0); s.rotation.set(0.25 * (i - 1), 0, 0.35 * (i - 1)); g.add(s);
+  }
+  return g;
 }
 
 // ---------- 河岸与植被 ----------

@@ -44,9 +44,10 @@ function tape(g, x, y, w, rot) {
   g.strokeStyle = 'rgba(160, 140, 80, .35)'; g.lineWidth = 2; g.strokeRect(-w / 2, -22, w, 44);
   g.restore();
 }
-// 小鸭涂鸦：kind = 'home'（黄，开心）/ 'lost'（虚线空心）/ 'adopt'（麻黄色）
-function duckDoodle(g, x, y, s, kind = 'home') {
+// 小鸭涂鸦：kind = 'home'（黄，开心）/ 'lost'（虚线空心）/ 'adopt'（麻黄色）；trait = 性格（睡觉闭眼、胖墩更圆、好奇的呆毛、双胞胎的小角）
+function duckDoodle(g, x, y, s, kind = 'home', trait) {
   g.save(); g.translate(x, y); g.scale(s, s);
+  if (trait === 'chubby') g.scale(1.15, 1.1);
   g.lineWidth = 6; g.strokeStyle = INK; g.lineJoin = 'round';
   if (kind === 'lost') { g.setLineDash([10, 9]); g.strokeStyle = 'rgba(43,58,74,.45)'; }
   const fill = kind === 'home' ? '#ffd84d' : kind === 'adopt' ? '#d9b45a' : 'rgba(0,0,0,0)';
@@ -56,8 +57,14 @@ function duckDoodle(g, x, y, s, kind = 'home') {
   g.setLineDash([]);
   if (kind !== 'lost') {
     g.fillStyle = '#f08a2a'; g.beginPath(); g.moveTo(48, -24); g.lineTo(72, -18); g.lineTo(48, -10); g.closePath(); g.fill(); g.stroke();
-    g.fillStyle = INK; g.beginPath(); g.arc(32, -28, 5, 0, TAU); g.fill();
+    if (trait === 'sleepy') {   // 闭着眼 + 一个 z
+      g.lineWidth = 5; g.beginPath(); g.arc(32, -30, 6, 0.2, Math.PI - 0.2); g.stroke();
+      g.font = `700 34px ${HEAD}`; g.fillStyle = INK; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.fillText('z', 48, -52);
+    } else { g.fillStyle = INK; g.beginPath(); g.arc(32, -28, 5, 0, TAU); g.fill(); }
   }
+  g.lineWidth = 5;
+  if (trait === 'curious') { g.beginPath(); g.moveTo(22, -46); g.quadraticCurveTo(12, -74, 30, -72); g.stroke(); }   // 一根翘起的呆毛
+  else if (trait === 'twin') { g.beginPath(); g.moveTo(18, -46); g.lineTo(14, -64); g.moveTo(28, -47); g.lineTo(30, -66); g.stroke(); }   // 两根小角
   g.restore();
 }
 function star(g, x, y, r, filled) {
@@ -66,7 +73,7 @@ function star(g, x, y, r, filled) {
   g.closePath(); g.lineWidth = 7; g.strokeStyle = INK; g.fillStyle = filled ? '#ffd24f' : 'rgba(0,0,0,0)'; g.fill(); g.stroke(); g.restore();
 }
 // 贴在笔记本上的知识卡
-function noteCard(g, x, y, w, h, [ic, title, text], isNew, rot) {
+function noteCard(g, x, y, w, h, [ic, title, text], isNew, rot, fs = 1) {
   g.save(); g.translate(x + w / 2, y + h / 2); g.rotate(rot); g.translate(-w / 2, -h / 2);
   g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(8, 10, w, h);
   g.fillStyle = '#fffdf6'; g.fillRect(0, 0, w, h);
@@ -81,13 +88,13 @@ function noteCard(g, x, y, w, h, [ic, title, text], isNew, rot) {
     g.fillStyle = RED; g.font = `700 30px ${HEAD}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('new!', 0, 2);
     g.restore();
   }
-  textBlock(g, text, 28, 100, w - 56, 38, 1.34);
+  textBlock(g, text, 28, 100, w - 56, 38 * fs, 1.34);
   g.restore();
   tape(g, x + w / 2, y + 4, 150, rot * 2 + (Math.random() - 0.5) * 0.2);
 }
 
 // spec: { title, sub, stars, ducks: [{kind}], lines: [string], notes: [[ic,title,text], isNew][], count, next: {title, text}, footer }
-function drawPage(g, spec) {
+function drawPage(g, spec, fs = 1) {   // fs = 正文字号缩放：内容太多放不下时整页缩一点重画
   g.clearRect(0, 0, W, H);
   // 纸
   g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
@@ -115,25 +122,29 @@ function drawPage(g, spec) {
     y += 140;
     if (spec.ducks?.length) {
       const s = Math.min(1, 900 / (spec.ducks.length * 170));
-      spec.ducks.forEach((d, i) => duckDoodle(g, L + 60 + i * 170 * s, y + 60, s, d.kind));
-      y += 160;
+      spec.ducks.forEach((d, i) => {
+        duckDoodle(g, L + 60 + i * 170 * s, y + 60, s, d.kind, d.trait);
+        if (d.name) { g.font = `${Math.round(40 * Math.max(0.75, s))}px ${HAND}`; g.fillStyle = d.kind === 'lost' ? 'rgba(43,58,74,.45)' : INK; g.textAlign = 'center'; g.textBaseline = 'top'; g.fillText(d.name, L + 60 + i * 170 * s + 8 * s, y + 118); g.textAlign = 'left'; }
+      });
+      y += spec.ducks.some(d => d.name) ? 200 : 160;
     }
-    for (const l of spec.lines || []) y = textBlock(g, l, L, y, CW, 50, 1.4) + (spec.gap ?? 4);
+    for (const l of spec.lines || []) y = textBlock(g, l, L, y, CW, 50 * fs, 1.4) + (spec.gap ?? 4);
     y += 20;
     if (spec.notes?.length) {
       const n = spec.notes.length, gap = 60, w = (CW - gap * (n - 1)) / n;
-      g.font = `38px ${HAND}`;
-      const h = Math.max(240, 132 + Math.max(...spec.notes.map(([nt]) => wrap(g, nt[2], w - 56).length)) * 38 * 1.34);   // 卡片高度跟着字数走
-      spec.notes.forEach(([note, isNew], i) => noteCard(g, L + i * (w + gap), y, w, h, note, isNew, (i % 2 ? 1 : -1) * 0.018));
+      g.font = `${38 * fs}px ${HAND}`;
+      const h = Math.max(240 * fs, 132 + Math.max(...spec.notes.map(([nt]) => wrap(g, nt[2], w - 56).length)) * 38 * fs * 1.34);   // 卡片高度跟着字数走
+      spec.notes.forEach(([note, isNew], i) => noteCard(g, L + i * (w + gap), y, w, h, note, isNew, (i % 2 ? 1 : -1) * 0.018, fs));
       y += h + 30;
       if (spec.count) { g.font = `38px ${HAND}`; g.fillStyle = 'rgba(43,58,74,.6)'; g.textAlign = 'right'; g.fillText(spec.count, R, y - 10); g.textAlign = 'left'; y += 40; }
     }
     if (spec.next) {
       g.strokeStyle = 'rgba(43,58,74,.4)'; g.lineWidth = 3; wobblyLine(g, L, y, R, y, 3); y += 26;
       g.font = `700 72px ${HEAD}`; g.fillStyle = RED; g.fillText(spec.next.title, L, y - 8); y += 80;
-      y = textBlock(g, spec.next.text, L, y, CW, 46, 1.4);
+      y = textBlock(g, spec.next.text, L, y, CW, 46 * fs, 1.4);
     }
   }
+  if (!spec.compact && !spec.big && spec.footer && y > H - 120 && fs > 0.9) return drawPage(g, spec, fs - 0.04);   // 会压到页脚：缩小重画
   const used = spec.compact ? Math.min(H, Math.max(620, y + 150)) : H;   // 小纸条：只用上面一截
   if (spec.footer) { g.font = `46px ${HAND}`; g.fillStyle = 'rgba(43,58,74,.7)'; g.textAlign = 'right'; g.textBaseline = 'bottom'; g.fillText(spec.footer, R, used - 50); }
   if (spec.compact) { g.strokeStyle = INK; g.lineWidth = 6; g.strokeRect(3, 3, W - 6, used - 6); }
