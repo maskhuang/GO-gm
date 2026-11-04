@@ -12,8 +12,10 @@ You are a mother merganser. Your ducklings hatched yesterday, and the safest way
 
 **Lean** with the mouse to keep them balanced. **Shift** to quack: the ducklings on your back scramble back to the middle, and the ones in the water climb aboard from your tail. That's all the controls there are. The river does the rest.
 
-- **Four outings across two weeks, about 15 minutes.** Watch your brood grow from one-day-old fluffballs into twelve-day-old swimmers.
-- **Trouble on the river:** a hawk overhead, a heron in the shallows, something under the water, rapids, rain, gulls and a very territorial neighbour.
+- **Four outings across two weeks, about 15 minutes.** Watch your brood grow from one-day-old fluffballs into twelve-day-old swimmers, then see one of them carry a brood of her own.
+- **Five ducklings with personalities:** Pip chases butterflies, Dozy naps anywhere, Bun is heavy, and the twins Tic and Tac squabble. Your notebook keeps track of their adventures.
+- **Trouble on the river:** a hawk overhead, a heron in the shallows, something under the water, a mink on the bank, rapids, rain, mist, gulls and a very territorial neighbour.
+- **Endless crèche:** lead a growing crowd of strays down a river that never ends.
 - **Field notes** after each day about real merganser behaviour. The mother's tricks in the game are inspired by what real ducks do.
 - **Music:** Debussy's *Children's Corner*, on a sampled grand piano.
 

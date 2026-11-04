@@ -1077,8 +1077,10 @@ function familyStories() {
     if (L.saves >= 2) c.push([L.saves * 1.2, `${n} dangled off the edge ${times(L.saves)}.`]);
     if (L.falls >= 3) c.push([L.falls, `${n} went for ${L.falls} unplanned swims.`]);
     if (L.sneezes >= 2) c.push([L.sneezes * 1.3, `${n} sneezed on everyone ${times(L.sneezes)}.`]);
-    if (!L.falls && d.state === 'home') c.push([1.5, `${n} stayed dry all day.`]);
   }
+  const dry = live.filter(d => !d.log.falls && d.state === 'home').map(nm);   // 没沾水的合成一句
+  if (dry.length === live.length && dry.length > 1) c.push([1.5, 'Nobody got wet all day.']);
+  else if (dry.length) c.push([1.5, `${dry.length > 1 ? dry.slice(0, -1).join(', ') + ' and ' + dry[dry.length - 1] : dry[0]} stayed dry all day.`]);
   c.sort((a, b) => b[0] - a[0]);
   return c.slice(0, 2).map(x => x[1]).join(' ');
 }
@@ -1091,7 +1093,7 @@ function journeyAwards(rosters) {
 }
 function pausePage() {
   const onB = ducklings.filter(d => d.state === 'onBack').length, inW = ducklings.filter(d => ['floating', 'queued', 'falling', 'hopping'].includes(d.state)).length;
-  return { title: isCreche() ? 'The Crèche · Taking a Breather' : `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
+  return { title: isCreche() ? 'The Crèche · Taking a Breather' : isEpilogue() ? `${C.hero}'s Brood · Taking a Breather` : `Day ${curDay().age} · Taking a Breather`, ducks: familyDoodles(),
     lines: [`${isCreche() ? `${Math.round(S.dist)} m so far.` : `${Math.ceil(Math.max(0, dayLen() - S.dist))} m to home.`} ${onB} on your back${inW ? `, ${inW} in the water` : ''}.`,
       TOUCH.on ? `Drag one finger: lean.   Tap, or put down a second finger: quack.${C.day >= 1 ? '   Hold the second finger: play hurt.' : ''}`
         : `Mouse: lean to keep them balanced.   Shift: quack.${C.day >= 1 ? '   Hold Shift: play hurt.' : ''}`,
@@ -1574,7 +1576,16 @@ const C = { day: 0, roster: [], startRoster: [], nextRoster: null, pending: null
 // 托儿所（无尽模式）：真实的秋沙鸭会把几窝雏鸭合成一大群，由一只母鸭带着。没有终点，一路收留走散的宝宝，看能带多大一群
 const CRECHE_DAY = { age: 5, g: 0.33, len: Infinity, unlock: [] };
 const isCreche = () => C.mode === 'creche';
-const curDay = () => isCreche() ? CRECHE_DAY : DAYS[Math.min(C.day, DAYS.length - 1)];
+// 尾声：两年后的春天（秋沙鸭一般两岁才第一次筑巢），这一局活下来的一只宝宝当了妈妈，背着自己的一窝走一小段河；操作完全一样
+const EPI_DAY = { age: 1, g: 0, len: 0.5, unlock: [{ at: 14, ev: 'kayak' }, { at: 30, ev: 'hatch' }, { at: 48, ev: 'orphan' }] };
+const EPI_KINDS = [
+  { kind: 'curious', name: '好奇鬼', en: 'Sprig', color: 0xffe066, mass: 1, scale: 1 },
+  { kind: 'sleepy',  name: '瞌睡虫', en: 'Puff',  color: 0xfff1a8, mass: 1, scale: 1 },
+  { kind: 'chubby',  name: '小胖墩', en: 'Dumpling', color: 0xffc94a, mass: 2, scale: 1.35 },
+  { kind: 'curious', name: '好奇鬼', en: 'Nib',   color: 0xffd84d, mass: 1, scale: 0.95 },
+];
+const isEpilogue = () => C.mode === 'epilogue';
+const curDay = () => isCreche() ? CRECHE_DAY : isEpilogue() ? EPI_DAY : DAYS[Math.min(C.day, DAYS.length - 1)];
 const growth = () => curDay().g;
 const dayLen = () => P.journeyLen * curDay().len;            // 默认 600 → 450 / 540 / 630 / 720 米
 const freezeT = () => P.lostTime * (1 + 1.2 * growth());      // 越大越耐冷
@@ -1592,6 +1603,7 @@ function proceed() {   // 结算画面点一下：下一天 / 重来这一天 / 
   else if (C.pending === 'retry') C.roster = C.startRoster.slice();
   else if (C.pending === 'new') newCampaign();
   else if (C.pending === 'creche') { C.roster = KINDS.map(k => ({ ...k })); C.cPiece = 0; }
+  else if (C.pending === 'epilogue') { C.mode = 'epilogue'; C.day = 0; C.roster = EPI_KINDS.map(k => ({ ...k })); DIR.unlocked = []; }
   C.pending = null; reset(); S.started = true;
 }
 
@@ -1696,6 +1708,9 @@ function updateLayer(dt, prog) {
 
 // ---------- 终点：漂到小岛就到家 ----------
 const HOME = ART.buildHome(RIVER_HALF); scene.add(HOME.group);
+// 尾声：老妈妈在小岛上等着（缩小一点，站在窝的后面，面朝镜头）
+const GRANNY = new THREE.Group(); { const g = ART.buildMother(GRANNY, toon, BODY); g.update?.(); }
+GRANNY.scale.setScalar(0.5); GRANNY.rotation.y = Math.PI * 1.2; GRANNY.position.set(-1.0, HOME.nestY - 0.1, 0.35); GRANNY.visible = false; HOME.group.add(GRANNY);
 const HOME_AHEAD = 3.4;   // 到家时小岛在鸭妈妈前方多远（太近会被她的头挡住）
 function journeyFlow() {
   const rem = dayLen() - S.dist;
@@ -1703,7 +1718,7 @@ function journeyFlow() {
 }
 function updateJourney(dt) {
   if (!S.arrived) S.time += dt;
-  HOME.group.visible = !isCreche();
+  HOME.group.visible = !isCreche(); GRANNY.visible = isEpilogue();
   if (isCreche()) return;   // 托儿所没有终点
   HOME.group.position.set(0, 0, (S.z - dayLen() - HOME_AHEAD) + S.dist);   // 小岛固定在地面坐标上
   for (const l of HOME.lily) l.position.y = Math.sin(performance.now() / 800 + l.position.x) * 0.006;
@@ -1770,6 +1785,7 @@ const NOTES = {
   sawbill: ['🐟', 'Saw-Toothed Bill', "A merganser's bill is long and thin, lined with backward-pointing serrations that grip slippery fish. Hence the nickname \"sawbill\"."],
   mist:    ['🌫', 'Calling in the Mist', 'When they lose sight of each other, ducklings peep loudly and the mother answers. Families on the water keep in touch by voice as much as by sight.'],
   mink:    ['🦦', 'Mink on the Bank', 'American mink hunt along riverbanks and swim well, and they do take ducklings. A mother duck will often rush at a small predator, splashing and calling, to drive it off.'],
+  return:  ['🏞', 'Coming Home to Nest', 'Female ducks often come back to breed close to where they hatched. Common mergansers usually nest for the first time at about two years old.'],
   creche:  ['👪', 'Crèches', 'Common merganser broods often merge into a crèche, sometimes dozens of ducklings strong, looked after by one or a few females. Strays that lose their own mother can join in.'],
   fledge:  ['🪽', 'Not Flying Yet', 'After two weeks the ducklings can keep themselves warm, but flying is still far off: common merganser ducklings take about two months to fly.'],
   odds:    ['💔', 'Not Every Duckling Makes It', 'In the wild, few broods survive intact. For many duck species, fewer than half the ducklings in a brood live long enough to fly.'],
@@ -1834,8 +1850,16 @@ function showResults() {
   const stats = [`Brought home ${home} duckling${home === 1 ? '' : 's'}${adoptedToday ? ` (${adoptedToday} adopted today)` : ''}${S.fed ? `, who ate ${S.fed} bugs on the way` : ''}.`,
     `${S.eaten ? `${S.eaten} taken by predators. ` : ''}Caught at the edge ${S.saves}×, scooped from the water ${S.catches}×, time ${mm}:${ss}.`];
   const story = familyStories(); if (story) stats.push(story);
-  const stamps = dayBadges(home, adoptedToday), badgeCount = `Stamps ${badgesGot.length} / ${badgeTotal()}`;
+  const stamps = isEpilogue() ? [] : dayBadges(home, adoptedToday), badgeCount = `Stamps ${badgesGot.length} / ${badgeTotal()}`;
   addToJourney();
+  if (isEpilogue()) {   // 尾声结束：故事讲完了
+    C.pending = 'new';
+    book.show({ title: 'The End', ducks: familyDoodles(),
+      lines: [`${C.hero} brought ${home} of her own duckling${home === 1 ? '' : 's'} home, to the same island where she grew up.${story ? ' ' + story : ''}`,
+        'Her mother was waiting there. Thank you for playing Duck Shift!'],
+      ...fieldNotes(['return']), footer: TOUCH.on ? '(tap to play again)' : '(click to play again)' });
+    return;
+  }
   if (C.day < DAYS.length - 1) {
     const next = DAYS[C.day + 1];
     C.pending = 'next'; C.nextRoster = survivors;
@@ -1845,12 +1869,17 @@ function showResults() {
     const startN = KINDS.length, stars = home >= startN ? 3 : home >= 3 ? 2 : home >= 1 ? 1 : 0;
     const isBest = !best || home > best.home;
     if (isBest) { best = { home, stars }; try { localStorage.setItem('duckShiftBestHome', JSON.stringify(best)); } catch (e) {} }
-    C.pending = 'new';
     const adoptN = survivors.filter(k => k.adopted).length;
+    // 尾声的主角：活下来的里面挑一只（优先自家那一窝的）
+    const own = survivors.filter(k => !k.adopted), pool = own.length ? own : survivors;
+    C.hero = pool.length ? pool[Math.floor(Math.random() * pool.length)].en : null;
+    C.pending = C.hero ? 'epilogue' : 'new';
     book.show({ title: "They've Grown Up!", stars, ducks: familyDoodles(), stamps, stampCount: badgeCount,
       lines: [`${home} duckling${home === 1 ? '' : 's'} made it to the age where they can keep warm and feed themselves${adoptN ? `, ${adoptN} of them adopted along the way` : ''}.`,
         ...[journeyAwards(survivors)].filter(Boolean), isBest ? 'Your best run yet!' : `Best run: ${best.home} grew up.`],
-      ...fieldNotes(['fledge']), footer: '(click to play again)' });
+      ...fieldNotes(['fledge']),
+      ...(C.hero ? { next: { title: 'Two Springs Later', text: `${C.hero} is grown up now, with ducklings of her own. Time to carry them down the river.` } } : {}),
+      footer: C.hero ? (TOUCH.on ? '(tap to set off)' : '(click to set off)') : (TOUCH.on ? '(tap to play again)' : '(click to play again)') });
   }
 }
 
@@ -2664,10 +2693,10 @@ function syncVisuals(realDt, simDt) {
     if (isCreche()) { crecheResults(); return; }
     S.over = true; C.pending = 'retry';
     const allTaken = S.eaten === ducklings.filter(d => d.state !== 'stray').length, left = Math.ceil(dayLen() - S.dist);
-    book.show({ title: `Day ${curDay().age} · Didn't Make It`, ducks: familyDoodles(),
+    book.show({ title: isEpilogue() ? `${C.hero}'s Brood · Didn't Make It` : `Day ${curDay().age} · Didn't Make It`, ducks: familyDoodles(),
       lines: allTaken ? [`Every duckling was taken... ${left} m from home.`]
         : [`All the ducklings ended up in the water, too cold to keep up. ${left} m from home.`, ...(S.eaten ? [`${S.eaten} taken by predators.`] : [])],
-      ...fieldNotes([allTaken ? 'odds' : 'rain']), footer: `(click to try Day ${curDay().age} again)` });
+      ...fieldNotes([allTaken ? 'odds' : 'rain']), footer: isEpilogue() ? '(click to try again)' : `(click to try Day ${curDay().age} again)` });
   }
 }
 
@@ -2872,7 +2901,7 @@ newCampaign();
 spawnDucklings();
 applyStyle(P.artStyle);
 book.show(titlePage());
-window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, MS, BRIDGE, dayLen, MK, spawnMink, TOUCH, glyph, titlePage, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
+window.__duck = { C, DAYS, proceed, stylize, renderer, camera, scene, book, S, P, L, COLD_TINT, spawnOrphan, DIR, HOME, H: hawkState, spawnHawk, RP, startRapids, applyStyle, get ducklings() { return ducklings; }, quack, fall, spawnLurker, triggerEvent, RN, HR, GL, FL, RV, HT, mouse, GRANNY, EPI_DAY, MS, BRIDGE, dayLen, MK, spawnMink, TOUCH, glyph, titlePage, startCreche, backToStory, crecheResults, BADGES, updateLayer, get badgesGot() { return badgesGot; }, deadpan, dropFeather, sneezeBurst, familyStories, showResults, startDisplay, TUT, get taught() { return taught; },
   sfx: { get actx() { return actx; }, get master() { return master; }, quackSound, peep, coldPeep, splashSound, thudSound, bloop, screechSound, whooshSound, gullSound, hissSound, croakSound, chompSound, play, SFX, LOOPS, pianoNote, stinger, MUS, PIANO } };   // 调试用
 requestAnimationFrame(frame);
 </script>
